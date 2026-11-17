@@ -40,7 +40,7 @@ jobs:
         run: |
           echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> "$GITHUB_ENV"
           yes | "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-37' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
+          "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
       - name: Compile native Android APK and JNI C++ modeling library
         run: gradle --no-daemon --stacktrace :app:assembleDebug
       - name: Audit APK includes model core, DEX and manifest
