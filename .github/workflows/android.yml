@@ -43,6 +43,14 @@ jobs:
           "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
       - name: Compile native Android APK and JNI C++ modeling library
         run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Assert Filament initialization order in activity source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('app/src/main/java/com/modelforge/nativeeditor/MainActivity.kt').read_text()
+          assert src.index('Utils.init()\n            Gltfio.init()') < src.index('viewer = ModelViewer(')
+          print('STARTUP_ORDER: PASS utilities JNI then gltfio before ModelViewer')
+          PY
       - name: Audit APK includes model core, DEX and manifest
         shell: bash
         run: |
@@ -51,10 +59,11 @@ jobs:
           path='app/build/outputs/apk/debug/app-debug.apk'
           with ZipFile(path) as z:
               names=set(z.namelist())
-          assert 'lib/arm64-v8a/libmodel_forge_core.so' in names, 'JNI geometry core missing'
+          for lib in ('model_forge_core', 'filament-jni', 'filament-utils-jni', 'gltfio-jni'):
+              assert f'lib/arm64-v8a/lib{lib}.so' in names, f'JNI library missing: {lib}'
           assert 'classes.dex' in names, 'Android compiled application missing'
           assert 'AndroidManifest.xml' in names, 'Manifest missing'
-          print('MODEL_FORGE_NATIVE_APK: PASS installed JNI geometry + manifest + DEX')
+          print('MODEL_FORGE_NATIVE_APK: PASS geometry + all Filament JNI layers + DEX + manifest')
           PY
       - uses: actions/upload-artifact@v4
         with:

@@ -181,10 +181,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             "You can copy this diagnostic for troubleshooting. No model files are removed.",
             13f, muted))
         overlay.addView(button("COPY DIAGNOSTIC") {
-            val report = "Model Forge native v0.2.1\\n" +
+            val report = "Model Forge native v0.2.1\n" +
                 "Device: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL +
-                "\\nAndroid API: " + android.os.Build.VERSION.SDK_INT +
-                "\\n" + message
+                "\nAndroid API: " + android.os.Build.VERSION.SDK_INT +
+                "\n" + message
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("Model Forge startup report", report))
             toast("Diagnostic copied. Paste it into our chat.")
