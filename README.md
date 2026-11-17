@@ -44,6 +44,12 @@ A separate **Open CASCADE Technology (OCCT) desktop benchmark passed**: mathemat
 
 Generated-box shape edits now use the C++ `Document` for stable IDs, atomic profile changes, and in-session Undo/Redo. The latest editable generated shape is saved in a crash-safe Android-private file and restored on the next launch. This is not a portable multi-object project archive; imported GLBs remain preview-only and native CAD payloads are still not shipped. See [foundation milestone 02](docs/FOUNDATION_MILESTONE_02.md).
 
+## v0.4 direct viewport shaping — generated solids only
+
+Tap **EDIT ON MODEL** in the tools drawer while a generated box is open. Three camera-projected handles appear on the top surface: LEAN (moves top sideways), WIDTH (adjusts the top width), and LENGTH (adjusts the top length). Drag a handle and lift your finger to commit the new generated geometry; the same native Document backs slider and direct manipulation Undo/Redo. The UI shows a numeric preview while dragging and regenerates the mesh on release to avoid repeated JNI/Filament asset churn.
+
+This is **not** imported GLB editing or generic mesh face/edge picking. Normal orbit/zoom gestures remain available away from handles. The top handles hide when the top surface is back-facing from the camera. See [milestone 03](docs/FOUNDATION_MILESTONE_03.md).
+
 ## First real-user gate
 
 A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.
