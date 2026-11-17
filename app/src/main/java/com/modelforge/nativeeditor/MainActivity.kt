@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.os.Bundle
 import android.util.Log
+import android.util.AtomicFile
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.MotionEvent
@@ -38,6 +39,9 @@ import com.google.android.filament.utils.Manipulator
 import com.google.android.filament.utils.Utils
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.charset.StandardCharsets
 
 /**
  * First real Android vertical slice: the user can create an exact-dimension
@@ -71,8 +75,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         val topWidth: Float = 1f, val topLength: Float = 1f, val shiftX: Float = 0f
     )
     private var currentShape: Shape? = null
-    private val undoHistory = ArrayDeque<Shape>()
-    private val redoHistory = ArrayDeque<Shape>()
+    // Native C++ Document owns object IDs, revisions, and in-session undo/redo.
+    private val projectFile by lazy { AtomicFile(File(filesDir, "working_shape.mforge")) }
     private lateinit var topWidthSlider: SeekBar
     private lateinit var topLengthSlider: SeekBar
     private lateinit var shiftSlider: SeekBar
@@ -153,7 +157,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 true
             }
             markStartup("loading_starter_glb")
-            createBox()
+            if (!restoreWorkingShape()) createBox()
             markStartup("awaiting_first_frame")
         } catch (error: Throwable) {
             Log.e("ModelForgeStartup", "Startup failure", error)
@@ -373,8 +377,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 lengthField.text.toString().toFloat()
             )
             if (renderShape(solid)) {
-                undoHistory.clear()
-                redoHistory.clear()
+                NativeProject.resetAndCreate(solid.width, solid.height, solid.length,
+                    solid.topWidth, solid.topLength, solid.shiftX)
+                saveWorkingShape()
                 syncShapeUi()
             }
         } catch (error: Exception) {
@@ -406,9 +411,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             )
             if (next == previous) { toast("Shape is already up to date."); return }
             if (renderShape(next)) {
-                undoHistory.addLast(previous)
-                if (undoHistory.size > 40) undoHistory.removeFirst()
-                redoHistory.clear()
+                NativeProject.reshape(next.width, next.height, next.length,
+                    next.topWidth, next.topLength, next.shiftX)
+                saveWorkingShape()
                 syncShapeUi()
             }
         } catch (error: Exception) {
@@ -418,23 +423,66 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
     }
 
+    private fun fromNative(): Shape? {
+        val values = NativeProject.currentShape() ?: return null
+        if (values.size != 6) return null
+        return Shape(values[0], values[1], values[2],
+            values[3], values[4], values[5])
+    }
+
     private fun undoShape() {
-        val previous = undoHistory.lastOrNull() ?: return
-        val active = currentShape ?: return
-        if (renderShape(previous)) {
-            undoHistory.removeLast()
-            redoHistory.addLast(active)
-            syncShapeUi()
+        if (currentShape == null || !NativeProject.undo()) return
+        val previous = fromNative()
+        if (previous == null || !renderShape(previous)) {
+            NativeProject.redo()
+            toast("Could not preview the previous shape.")
+        } else {
+            saveWorkingShape()
         }
+        syncShapeUi()
     }
 
     private fun redoShape() {
-        val next = redoHistory.lastOrNull() ?: return
-        val active = currentShape ?: return
-        if (renderShape(next)) {
-            redoHistory.removeLast()
-            undoHistory.addLast(active)
-            syncShapeUi()
+        if (currentShape == null || !NativeProject.redo()) return
+        val next = fromNative()
+        if (next == null || !renderShape(next)) {
+            NativeProject.undo()
+            toast("Could not preview the next shape.")
+        } else {
+            saveWorkingShape()
+        }
+        syncShapeUi()
+    }
+
+    private fun saveWorkingShape() {
+        var stream: FileOutputStream? = null
+        try {
+            val data = NativeProject.snapshot().toByteArray(StandardCharsets.UTF_8)
+            stream = projectFile.startWrite()
+            stream.write(data)
+            projectFile.finishWrite(stream)
+        } catch (error: Exception) {
+            if (stream != null) projectFile.failWrite(stream)
+            Log.w("ModelForgeProject", "Could not persist working shape", error)
+            toast("Shape updated, but local recovery copy could not be saved.")
+        }
+    }
+
+    private fun restoreWorkingShape(): Boolean {
+        if (!projectFile.baseFile.exists()) return false
+        return try {
+            val raw = projectFile.openRead().use { input ->
+                val data = input.readBytes()
+                require(data.size <= 1024 * 1024) { "Project is too large" }
+                String(data, StandardCharsets.UTF_8)
+            }
+            NativeProject.load(raw)
+            val saved = fromNative() ?: throw IllegalArgumentException("No editable shape")
+            renderShape(saved)
+        } catch (error: Exception) {
+            Log.w("ModelForgeProject", "Could not restore working shape", error)
+            NativeProject.clear()
+            false
         }
     }
 
@@ -443,8 +491,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         topWidthSlider.isEnabled = shape != null
         topLengthSlider.isEnabled = shape != null
         shiftSlider.isEnabled = shape != null
-        undoButton.isEnabled = shape != null && undoHistory.isNotEmpty()
-        redoButton.isEnabled = shape != null && redoHistory.isNotEmpty()
+        undoButton.isEnabled = shape != null && NativeProject.canUndo()
+        redoButton.isEnabled = shape != null && NativeProject.canRedo()
         if (shape != null) {
             widthField.setText(shape.width.toString())
             heightField.setText(shape.height.toString())
@@ -610,8 +658,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 } ?: throw IllegalArgumentException("Document could not be read")
                 val name = uri.lastPathSegment?.substringAfterLast('/') ?: "Imported model"
                 if (present(bytes, name, true)) {
-                    undoHistory.clear()
-                    redoHistory.clear()
+                    // Import is still preview-only. Keep the last editable draft on disk.
+                    NativeProject.clear()
                     syncShapeUi()
                 }
             } else if (requestCode == exportCode) {
@@ -630,7 +678,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             .setTitle("Model Forge Native — Foundation")
             .setMessage(
                 "CREATE: Enter width, height and length, then tap CREATE BOX.\n\n" +
-                "SHAPE: Adjust top width, top length and sideways lean, then tap APPLY SHAPE. Undo/Redo reverses up to 40 edits.\n\n" +
+                "SHAPE: Adjust top width, top length and sideways lean, then tap APPLY SHAPE. Undo/Redo uses the native document during this session. Your last editable shape is restored after relaunch.\n\n" +
                 "VIEW: Drag the model or use the right joystick to orbit. Pinch to zoom; two fingers pan. FIT VIEW resets the camera; TURN VIEW tests orbit. ▼ HIDE TOOLS expands the screen.\n\n" +
                 "SAVE GLB: Keep the real mesh on your phone. OPEN GLB: Preview existing models.\n\n" +
                 "NEXT: Direct face/edge editing, bevel, extrusion and saved project history. Imported GLBs remain preview-only."

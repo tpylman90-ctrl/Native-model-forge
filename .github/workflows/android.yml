@@ -2,6 +2,8 @@ name: Native Model Forge Android Foundation
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -67,6 +69,22 @@ jobs:
           assert 'cameraManipulator.jumpToBookmark(cameraManipulator.homeBookmark)' in s
           assert not any(line.lstrip().startswith('viewer.camera.lookAt(') for line in s.splitlines())
           print('CAMERA_INPUT: PASS Filament manipulator owns swipe/joystick/zoom and camera state')
+          PY
+      - name: Guard native document and recovery wiring
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("app/src/main")
+          cpp = (root / "cpp/project_bridge.cpp").read_text()
+          ui = (root / "java/com/modelforge/nativeeditor/MainActivity.kt").read_text()
+          api = (root / "java/com/modelforge/nativeeditor/NativeProject.kt").read_text()
+          assert "Document candidate" in cpp and "candidate.clearHistory()" in cpp
+          assert "NativeProject.reshape(" in ui and "NativeProject.undo()" in ui
+          assert "NativeProject.redo()" in ui and "restoreWorkingShape()" in ui
+          assert "AtomicFile(" in ui and "NativeProject.snapshot()" in ui
+          assert "external fun currentShape()" in api
+          assert "undoHistory" not in ui and "redoHistory" not in ui
+          print("NATIVE_DOCUMENT_BRIDGE: PASS")
           PY
       - name: Audit APK includes model core, DEX and manifest
         shell: bash

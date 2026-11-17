@@ -13,6 +13,8 @@ struct ModelObject {
     std::string name;
     std::string sourceReference;
     std::array<double, 3> sizeMetres{{1.0, 1.0, 1.0}};
+    // Native project parameters are canonical; display triangles are disposable.
+    std::array<double, 3> topProfile{{1.0, 1.0, 0.0}};
 };
 
 // Host-testable, renderer-independent document. No Android or OCCT headers.
@@ -27,11 +29,17 @@ public:
                          std::uint64_t expectedRevision);
     void resize(std::uint64_t objectId, std::array<double,3> sizeMetres,
                 std::uint64_t expectedRevision);
+    void reshape(std::uint64_t objectId, std::array<double,3> sizeMetres,
+                 std::array<double,3> topProfile, std::uint64_t expectedRevision);
     void rename(std::uint64_t objectId, std::string name,
                 std::uint64_t expectedRevision);
     void erase(std::uint64_t objectId, std::uint64_t expectedRevision);
     bool undo();
     bool redo();
+    bool canUndo() const noexcept { return !undo_.empty(); }
+    bool canRedo() const noexcept { return !redo_.empty(); }
+    // Used only when establishing a new base project, not to discard an edit.
+    void clearHistory() noexcept { undo_.clear(); redo_.clear(); }
 
     std::string serialize() const;
     static Document parse(const std::string& data);
