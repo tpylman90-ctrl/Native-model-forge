@@ -762,6 +762,226 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         super.onDestroy()
     }
 
+
+    // First on-model direct manipulation: a generated box's top surface only.
+    // These are screen-projected geometry handles, not arbitrary GLB picking.
+    private enum class TopHandleKind { LEAN, WIDTH, LENGTH }
+    private data class TopHandle(
+        val kind: TopHandleKind, val label: String, val center: PointF,
+        val basis: PointF, val color: Int
+    )
+
+    private inner class DirectShapeOverlay : View(this@MainActivity) {
+        private val ink = Paint(Paint.ANTI_ALIAS_FLAG)
+        private var selected: TopHandle? = null
+        private var initial: Shape? = null
+        private var proposed: Shape? = null
+        private var touchStartX = 0f
+        private var touchStartY = 0f
+        private var fingerX = 0f
+        private var fingerY = 0f
+
+        fun cancelGesture() {
+            selected = null
+            initial = null
+            proposed = null
+            invalidate()
+        }
+
+        // Filament Java camera matrices are column-major. The GLB is centered
+        // and uniformly rescaled by ModelViewer.transformToUnitCube(); compute
+        // that same transform from the generated vertex bounds for handle points.
+        private fun projectPoint(
+            viewMatrix: DoubleArray, projection: DoubleArray,
+            x: Double, y: Double, z: Double
+        ): PointF? {
+            fun transform(m: DoubleArray, v: DoubleArray): DoubleArray =
+                DoubleArray(4) { i ->
+                    m[i] * v[0] + m[i + 4] * v[1] +
+                    m[i + 8] * v[2] + m[i + 12] * v[3]
+                }
+            val clip = transform(projection,
+                transform(viewMatrix, doubleArrayOf(x, y, z, 1.0)))
+            if (!clip[3].isFinite() || clip[3] <= 1e-6) return null
+            val nx = clip[0] / clip[3]
+            val ny = clip[1] / clip[3]
+            if (!nx.isFinite() || !ny.isFinite() ||
+                kotlin.math.abs(nx) > 1.08 || kotlin.math.abs(ny) > 1.08) return null
+            return PointF(((nx + 1.0) * width / 2.0).toFloat(),
+                          ((1.0 - ny) * height / 2.0).toFloat())
+        }
+
+        private fun handles(): List<TopHandle> {
+            val shape = currentShape ?: return emptyList()
+            if (!directShapeMode || !::viewer.isInitialized || width < 2 || height < 2)
+                return emptyList()
+            val w = shape.width.toDouble()
+            val h = shape.height.toDouble()
+            val l = shape.length.toDouble()
+            val shift = shape.shiftX.toDouble() * w
+            val tw = shape.topWidth.toDouble()
+            val tl = shape.topLength.toDouble()
+            val minX = minOf(-w / 2.0, shift - w * tw / 2.0)
+            val maxX = maxOf(w / 2.0, shift + w * tw / 2.0)
+            val minZ = minOf(-l / 2.0, -l * tl / 2.0)
+            val maxZ = maxOf(l / 2.0, l * tl / 2.0)
+            val scale = 2.0 / maxOf(maxX - minX, h, maxZ - minZ)
+            val centerX = (minX + maxX) / 2.0
+            val centerZ = (minZ + maxZ) / 2.0
+            val topY = (h / 2.0) * scale
+            // Hide the top-face handles if the camera is below its plane.
+            val camera = viewer.camera
+            if (camera.getPosition(null)[1] <= topY + 0.015) return emptyList()
+            val viewMatrix = camera.getViewMatrix(null)
+            val projection = camera.getProjectionMatrix(null)
+            fun at(x: Double, z: Double): PointF? =
+                projectPoint(viewMatrix, projection,
+                    (x - centerX) * scale, topY, (z - centerZ) * scale)
+            val lean = at(shift, 0.0) ?: return emptyList()
+            val topRight = at(shift + w * tw / 2.0, 0.0)
+            val topFront = at(shift, l * tl / 2.0)
+            val leanStep = at(shift + w * 0.10, 0.0)
+            val widthStep = at(shift + w * (tw + 0.10) / 2.0, 0.0)
+            val lengthStep = at(shift, l * (tl + 0.10) / 2.0)
+            fun axis(origin: PointF, end: PointF): PointF =
+                PointF((end.x - origin.x) * 10f, (end.y - origin.y) * 10f)
+            val output = mutableListOf<TopHandle>()
+            if (leanStep != null)
+                output.add(TopHandle(TopHandleKind.LEAN, "LEAN", lean,
+                    axis(lean, leanStep), Color.rgb(255, 210, 96)))
+            if (topRight != null && widthStep != null)
+                output.add(TopHandle(TopHandleKind.WIDTH, "WIDTH", topRight,
+                    axis(topRight, widthStep), Color.rgb(54, 212, 188)))
+            if (topFront != null && lengthStep != null)
+                output.add(TopHandle(TopHandleKind.LENGTH, "LENGTH", topFront,
+                    axis(topFront, lengthStep), Color.rgb(188, 149, 255)))
+            return output.filter {
+                val squared = it.basis.x * it.basis.x + it.basis.y * it.basis.y
+                squared > 12f * 12f
+            }
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            if (!directShapeMode) return
+            val shown = handles()
+            ink.style = Paint.Style.STROKE
+            ink.strokeWidth = dp(2).toFloat()
+            shown.forEach { handle ->
+                ink.color = handle.color
+                canvas.drawCircle(handle.center.x, handle.center.y,
+                    dp(22).toFloat(), ink)
+                ink.style = Paint.Style.FILL
+                canvas.drawCircle(handle.center.x, handle.center.y,
+                    dp(10).toFloat(), ink)
+                ink.color = Color.WHITE
+                ink.textAlign = Paint.Align.CENTER
+                ink.textSize = dp(12).toFloat()
+                ink.setShadowLayer(dp(3).toFloat(), 0f, 0f, Color.BLACK)
+                canvas.drawText(handle.label, handle.center.x,
+                    handle.center.y - dp(30), ink)
+                ink.clearShadowLayer()
+                ink.style = Paint.Style.STROKE
+            }
+            val active = selected
+            if (active != null) {
+                ink.color = Color.WHITE
+                ink.strokeWidth = dp(2).toFloat()
+                canvas.drawLine(active.center.x, active.center.y, fingerX, fingerY, ink)
+                ink.style = Paint.Style.FILL
+                canvas.drawCircle(fingerX, fingerY, dp(8).toFloat(), ink)
+            }
+            ink.style = Paint.Style.FILL
+        }
+
+        private fun candidate(base: Shape, handle: TopHandle, x: Float, y: Float): Shape {
+            val dx = x - touchStartX
+            val dy = y - touchStartY
+            val vector = handle.basis
+            val normSq = vector.x * vector.x + vector.y * vector.y
+            if (normSq < 144f) return base
+            val delta = (dx * vector.x + dy * vector.y) / normSq
+            return when (handle.kind) {
+                TopHandleKind.LEAN -> base.copy(
+                    shiftX = (base.shiftX + delta).coerceIn(-0.4f, 0.4f))
+                TopHandleKind.WIDTH -> base.copy(
+                    topWidth = (base.topWidth + delta).coerceIn(0.35f, 1.75f))
+                TopHandleKind.LENGTH -> base.copy(
+                    topLength = (base.topLength + delta).coerceIn(0.35f, 1.75f))
+            }
+        }
+
+        private fun updateTouch(x: Float, y: Float) {
+            val handle = selected ?: return
+            val base = initial ?: return
+            fingerX = x
+            fingerY = y
+            val next = candidate(base, handle, x, y)
+            proposed = next
+            val amount = when (handle.kind) {
+                TopHandleKind.LEAN -> (next.shiftX * 100).toInt().toString() + "%"
+                TopHandleKind.WIDTH -> (next.topWidth * 100).toInt().toString() + "%"
+                TopHandleKind.LENGTH -> (next.topLength * 100).toInt().toString() + "%"
+            }
+            status.text = handle.label + ": " + amount + " • lift finger to apply"
+            invalidate()
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (!directShapeMode) return false
+                    val target = handles().minByOrNull {
+                        val dx = it.center.x - event.x
+                        val dy = it.center.y - event.y
+                        dx * dx + dy * dy
+                    } ?: return false
+                    val dx = target.center.x - event.x
+                    val dy = target.center.y - event.y
+                    if (dx * dx + dy * dy > dp(44).toFloat() * dp(44)) return false
+                    selected = target
+                    initial = currentShape
+                    proposed = currentShape
+                    touchStartX = event.x
+                    touchStartY = event.y
+                    fingerX = event.x
+                    fingerY = event.y
+                    parent.requestDisallowInterceptTouchEvent(true)
+                    invalidate()
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (selected == null) return false
+                    updateTouch(event.x, event.y)
+                    return true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (selected == null) return false
+                    updateTouch(event.x, event.y)
+                    val next = proposed
+                    val original = initial
+                    cancelGesture()
+                    if (next != null && original != null && next != original)
+                        commitDirectShape(next)
+                    else status.text = "TOP EDIT: no change • drag a handle"
+                    performClick()
+                    return true
+                }
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (selected == null) return false
+                    cancelGesture()
+                    status.text = "TOP EDIT: drag a handle to edit"
+                    return true
+                }
+                else -> return selected != null
+            }
+        }
+
+        override fun performClick(): Boolean {
+            super.performClick()
+            return true
+        }
+    }
+
     private inner class OrbitPad : View(this@MainActivity) {
         var dx = 0f
         var dy = 0f
