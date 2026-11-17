@@ -107,5 +107,10 @@ Record exact comment/review URL, date, product and version when shown, device/in
 - [Onshape Android Google Play](https://play.google.com/store/apps/details?id=com.onshape.app): reviews about no tooltips, mobile creation difficulty, accidental lost drafts.
 - [Sculpt+ Google Play](https://play.google.com/store/apps/details?id=com.Endvoid.SculptPlus): reviews about crashes on save/subdivision and import restrictions.
 
+
+## Higher-quality surface modeling is now a product requirement
+
+The user explicitly prioritizes **professional CAD-grade surfaces and accessible touch operation together**, rather than accepting low-quality primitives to simplify the UI. [ADR-0001](ADR-0001_HYBRID_CAD_KERNEL.md) makes a hybrid B-Rep/NURBS + polygon modeling document the target, with Filament only as the tessellated display backend. Research identifies Open CASCADE Technology as a feasible *candidate* for Android arm64 evaluation and Manifold as an optional complementary triangle mesh Boolean library. **Neither is integrated or benchmarked in the current APK.** All previously proposed bevel/panel/loft features must consider exact CAD and mesh domains; prohibit silent loss of editability.
+
 ## Decision rule for adding features
 Every proposed feature must identify a user task, a failure scenario it removes, an on-phone acceptance test, and whether it belongs to Easy, Advanced or both. Prioritize **reliability and control** ahead of visual effects, AI, or public sharing. Do not market features as implemented before an APK build, real-device gesture check, and GLB regression test.
