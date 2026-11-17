@@ -832,7 +832,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             // Hide the top-face handles if the camera is below its plane.
             val camera = viewer.camera
             if (camera.getPosition(null)[1] <= topY + 0.015) return emptyList()
-            val viewMatrix = camera.getViewMatrix(null)
+            val viewMatrix = camera.getViewMatrix(DoubleArray(16))
             val projection = camera.getProjectionMatrix(null)
             fun at(x: Double, z: Double): PointF? =
                 projectPoint(viewMatrix, projection,
