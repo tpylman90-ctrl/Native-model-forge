@@ -30,7 +30,7 @@ A native, offline-first Android 3D creation studio designed for people who have 
 
 ## CAD foundation milestone 01 — verified desktop proof
 
-The native C++ core now includes a **standalone hybrid project-document layer** (stable object IDs, polygon vs B-Rep reference kinds, revision validation, metadata serialization and in-session Undo/Redo). This document model is not yet connected to Android controls or persistent CAD data.
+The native C++ core now includes a **standalone hybrid project-document layer** (stable object IDs, polygon vs B-Rep reference kinds, revision validation, metadata serialization and in-session Undo/Redo). Generated-box shaping now uses the native document over JNI, including crash-safe recovery of the latest shape. CAD payloads and imported-model editing remain unimplemented.
 
 A separate **Open CASCADE Technology (OCCT) desktop benchmark passed**: mathematically defined box with 3 mm fillets and a recessed Boolean pocket, STEP write/read, two display tessellation qualities, and a validated **watertight GLB preview**. See [milestone 01 results](docs/FOUNDATION_MILESTONE_01.md). **OCCT is not yet included in an Android APK.** ARM64 compilation, package size, phone performance and licensing remain open gates.
 
@@ -38,7 +38,11 @@ A separate **Open CASCADE Technology (OCCT) desktop benchmark passed**: mathemat
 
 **Implemented target:** native offline Android APK; high-quality Filament viewport; dimensioned box and native parametric top-face width/length/sideways-lean shaping; recalculated hard normals; bounded 40-step Undo/Redo for shapes during the current session; actual GLB mesh bounds derived from generated vertices; drag or use right orbit pad to inspect; pinch zoom; collapsible tools; import GLB preview and export generated GLB through Android Files. Core geometry unit tests and Android CI.
 
-**Not yet implemented:** editing imported models, arbitrary vertex/edge/face topology, freeform sculpting, persistent project/undo history across restarts, Boolean/subdivision, Python execution, user accounts, uploads, or live community. Changing box dimensions with CREATE BOX resets the current shaping history; APPLY SHAPE changes dimensions and top profile with Undo/Redo. Buttons for future tools must not claim functionality they do not have.
+**Not yet implemented:** editing imported models, arbitrary vertex/edge/face topology, freeform sculpting, persistent undo history across restarts, Boolean/subdivision, Python execution, user accounts, uploads, or live community. Changing box dimensions with CREATE BOX resets the current shaping history; APPLY SHAPE changes dimensions and top profile with Undo/Redo. Buttons for future tools must not claim functionality they do not have.
+
+## Foundation milestone 02 — native box project and recovery
+
+Generated-box shape edits now use the C++ `Document` for stable IDs, atomic profile changes, and in-session Undo/Redo. The latest editable generated shape is saved in a crash-safe Android-private file and restored on the next launch. This is not a portable multi-object project archive; imported GLBs remain preview-only and native CAD payloads are still not shipped. See [foundation milestone 02](docs/FOUNDATION_MILESTONE_02.md).
 
 ## First real-user gate
 
