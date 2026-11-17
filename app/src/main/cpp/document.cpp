@@ -28,6 +28,10 @@ void Document::validate(const ModelObject& obj) {
         reject(!std::isfinite(size) || size < 1e-6 || size > 10000.0,
                "invalid size in metres");
     }
+    const auto& p = obj.topProfile;
+    reject(!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2]) ||
+           p[0] < 0.35 || p[0] > 1.75 || p[1] < 0.35 || p[1] > 1.75 ||
+           p[2] < -0.4 || p[2] > 0.4, "invalid top surface profile");
 }
 void Document::commit(std::vector<ModelObject> next) {
     if (undo_.size() == maxHistory) undo_.erase(undo_.begin());
@@ -56,6 +60,20 @@ void Document::resize(std::uint64_t objectId, std::array<double,3> size,
     auto match=std::find_if(next.begin(),next.end(),[&](const ModelObject& o){return o.id==objectId;});
     reject(match==next.end(),"unknown object ID");
     match->sizeMetres=size;
+    validate(*match);
+    commit(std::move(next));
+}
+void Document::reshape(std::uint64_t objectId, std::array<double,3> size,
+                       std::array<double,3> profile, std::uint64_t expected) {
+    assertRevision(expected);
+    auto next=objects_;
+    auto match=std::find_if(next.begin(),next.end(),[&](const ModelObject& o){return o.id==objectId;});
+    reject(match==next.end(),"unknown object ID");
+    reject(match->kind!=GeometryKind::PolygonMesh ||
+           match->sourceReference!="generated:profiled_box",
+           "profile editing requires a generated editable box");
+    match->sizeMetres=size;
+    match->topProfile=profile;
     validate(*match);
     commit(std::move(next));
 }
@@ -95,12 +113,13 @@ bool Document::redo() {
 }
 std::string Document::serialize() const {
     std::ostringstream stream;
-    stream << "MFORGE_DOC 1\n" << revision_ << ' ' << nextId_ << ' ' << objects_.size() << '\n'
+    stream << "MFORGE_DOC 2\n" << revision_ << ' ' << nextId_ << ' ' << objects_.size() << '\n'
            << std::setprecision(17);
     for (const ModelObject& obj : objects_) {
         stream << obj.id << ' ' << static_cast<int>(obj.kind) << ' '
                << std::quoted(obj.name) << ' ' << std::quoted(obj.sourceReference);
         for (double size : obj.sizeMetres) stream << ' ' << size;
+        for (double parameter : obj.topProfile) stream << ' ' << parameter;
         stream << '\n';
     }
     return stream.str();
@@ -110,7 +129,7 @@ Document Document::parse(const std::string& data) {
     std::istringstream stream(data);
     std::string magic;
     int version=0;
-    reject(!(stream>>magic>>version) || magic!="MFORGE_DOC" || version!=1,
+    reject(!(stream>>magic>>version) || magic!="MFORGE_DOC" || (version!=1 && version!=2),
            "unsupported document header");
     Document result;
     std::size_t count=0;
@@ -125,6 +144,10 @@ Document Document::parse(const std::string& data) {
                      std::quoted(obj.sourceReference)>>
                      obj.sizeMetres[0]>>obj.sizeMetres[1]>>obj.sizeMetres[2]),
                "truncated or corrupt project");
+        if (version==2) {
+            reject(!(stream>>obj.topProfile[0]>>obj.topProfile[1]>>obj.topProfile[2]),
+                   "missing or corrupt surface profile");
+        }
         obj.kind=static_cast<GeometryKind>(rawKind);
         validate(obj);
         reject(obj.id<=highestId || obj.id>=result.nextId_,
