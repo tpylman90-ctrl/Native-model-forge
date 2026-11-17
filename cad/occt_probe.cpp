@@ -14,6 +14,8 @@
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopLoc_Location.hxx>
@@ -56,12 +58,14 @@ int main(int argc,char** argv) {
     ensure(std::abs(volume(box)-288000.0)<0.01,"box volume mismatch");
 
     BRepFilletAPI_MakeFillet fillet(box);
-    int edges=0;
-    for (TopExp_Explorer e(box,TopAbs_EDGE);e.More();e.Next()) {
-      fillet.Add(3.,TopoDS::Edge(e.Current()));
-      ++edges;
-    }
-    ensure(edges==12,"unexpected box topology");
+    // TopExp_Explorer visits an edge once per incident face. Fillet once per
+    // unique topological edge using OCCT's indexed-shape collection.
+    TopTools_IndexedMapOfShape uniqueEdges;
+    TopExp::MapShapes(box,TopAbs_EDGE,uniqueEdges);
+    const int edges=uniqueEdges.Extent();
+    ensure(edges==12,"unexpected unique box edge count");
+    for(int i=1;i<=edges;++i)
+      fillet.Add(3.,TopoDS::Edge(uniqueEdges(i)));
     fillet.Build();
     ensure(fillet.IsDone(),"fillet kernel failure");
     TopoDS_Shape rounded=fillet.Shape();
