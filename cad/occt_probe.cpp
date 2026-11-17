@@ -13,6 +13,7 @@
 #include <Poly_Triangulation.hxx>
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
+#include <StlAPI_Writer.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -104,6 +105,13 @@ int main(int argc,char** argv) {
     checkSolid(imported,"STEP reimport");
     const double deviation=std::abs(volume(imported)-after);
     ensure(deviation<0.1,"STEP volume mismatch");
+
+    // Display/export triangle mesh is derived from the precise solid, not
+    // saved back as a B-Rep definition. Include it for Android GLB tests.
+    const std::string meshFile=file+".stl";
+    StlAPI_Writer stl;
+    stl.ASCIIMode()=false;
+    stl.Write(part,meshFile.c_str());
 
     std::cout<<"MODEL_FORGE_CAD_GATE_A PASS"
              <<" box_volume="<<volume(box)
