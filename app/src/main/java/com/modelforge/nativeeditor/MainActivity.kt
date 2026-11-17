@@ -13,7 +13,6 @@ import android.util.Log
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.ScaleGestureDetector
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
@@ -35,11 +34,10 @@ import com.google.android.filament.android.UiHelper
 import com.google.android.filament.gltfio.Gltfio
 import com.google.android.filament.utils.ModelViewer
 import com.google.android.filament.utils.Float3
+import com.google.android.filament.utils.Manipulator
 import com.google.android.filament.utils.Utils
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
  * First real Android vertical slice: the user can create an exact-dimension
@@ -63,7 +61,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private lateinit var heightField: EditText
     private lateinit var lengthField: EditText
     private lateinit var orbitPad: OrbitPad
-    private lateinit var pinch: ScaleGestureDetector
+    private lateinit var cameraManipulator: Manipulator
     private var currentGlb: ByteArray? = null
     private var currentName = "Starter Box"
     private var importedPreview = false
@@ -99,13 +97,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         startupPrefs.edit().putString("last_stage", "first_frame")
             .putBoolean("incomplete", false).apply()
     }
-    private var distance = 3.3
-    private var azimuth = 0.55
-    private var elevation = 0.32
     private var lastFrameNs = 0L
-    private var lastX = 0f
-    private var lastY = 0f
-    private var pinchActive = false
+    private var joystickFractionX = 0f
+    private var joystickFractionY = 0f
     private var backgroundFill: IndirectLight? = null
     private val studioLights = mutableListOf<Int>()
     private val openCode = 401
@@ -134,23 +128,30 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             Utils.init()
             Gltfio.init()
             markStartup("constructing_model_viewer")
+            // Filament's ModelViewer.render() REPLACES camera.lookAt using its
+            // Manipulator every frame. The old UI wrote to viewer.camera
+            // directly, so both joystick and swipe changes were overwritten.
+            // Share this manipulator with the viewer and all input controls.
+            cameraManipulator = Manipulator.Builder()
+                .targetPosition(0f, 0f, 0f)
+                .upVector(0f, 1f, 0f)
+                .orbitHomePosition(1.55f, 0.82f, 2.76f)
+                .orbitSpeed(0.009f, 0.009f)
+                .viewport(surface.width.coerceAtLeast(1), surface.height.coerceAtLeast(1))
+                .build(Manipulator.Mode.ORBIT)
             viewer = ModelViewer(
                 surface, Engine.create(),
-                UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK), null
+                UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK), cameraManipulator
             )
             markStartup("setting_up_lighting")
             setupLighting()
             viewer.camera.setExposure(13.0f, 1.0f / 125.0f, 100.0f)
-            pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                override fun onScale(detector: ScaleGestureDetector): Boolean {
-                    distance = (distance / detector.scaleFactor.toDouble()).coerceIn(1.2, 18.0)
-                    updateCamera()
-                    pinchActive = true
-                    return true
-                }
-            })
-            surface.setOnTouchListener { _, event -> orbitTouch(event) }
-            updateCamera()
+            // Use Filament's tested one-finger orbit, two-finger pan and
+            // pinch-to-zoom recognizer. All three update cameraManipulator.
+            surface.setOnTouchListener { _, event ->
+                if (::viewer.isInitialized && !startupFailed) viewer.onTouchEvent(event)
+                true
+            }
             markStartup("loading_starter_glb")
             createBox()
             markStartup("awaiting_first_frame")
@@ -287,8 +288,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         actionsRow.addView(undoButton)
         actionsRow.addView(redoButton)
         actionsRow.addView(button("FIT VIEW") {
-            azimuth = 0.55; elevation = 0.32; distance = 3.3; updateCamera()
+            if (::cameraManipulator.isInitialized)
+                cameraManipulator.jumpToBookmark(cameraManipulator.homeBookmark)
         })
+        actionsRow.addView(button("⟳ TURN VIEW") { rotateCameraForCheck() })
         actionsRow.addView(button("ADVANCED • SOON") {
             toast("Top-surface shaping works now. Arbitrary face/edge editing is coming later.")
         })
@@ -471,8 +474,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             importedPreview = imported
             currentShape = shape
             syncShapeUi()
-            if (!keepCamera) { azimuth = 0.55; elevation = 0.32; distance = 3.3 }
-            updateCamera()
+            if (!keepCamera && ::cameraManipulator.isInitialized) {
+                cameraManipulator.jumpToBookmark(cameraManipulator.homeBookmark)
+            }
             status.text = if (imported) "GLB preview: " + name + " • Import editing coming later"
                           else name + " • Native shaped solid • PBR viewport"
             return true
@@ -503,44 +507,56 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         studioLights.add(entity)
     }
 
-    private fun updateCamera() {
-        if (!::viewer.isInitialized) return
-        val x = distance * cos(elevation) * sin(azimuth)
-        val y = distance * sin(elevation)
-        val z = distance * cos(elevation) * cos(azimuth)
-        viewer.camera.lookAt(x, y, z, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+    // Deliberate button-triggered camera check: tests the same native path
+    // as the touch joystick without requiring a long press.
+    private fun rotateCameraForCheck() {
+        if (!::cameraManipulator.isInitialized || surface.width <= 0 || surface.height <= 0) {
+            toast("The 3D viewport is not ready.")
+            return
+        }
+        applyOrbitPixels(135, 0)
+        status.text = "TURN VIEW: orbit command sent • drag model or use right joystick"
     }
 
-    private fun orbitTouch(event: MotionEvent): Boolean {
-        pinch.onTouchEvent(event)
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { lastX = event.x; lastY = event.y; pinchActive = false }
-            MotionEvent.ACTION_POINTER_DOWN -> { pinchActive = true }
-            MotionEvent.ACTION_MOVE -> {
-                if (event.pointerCount == 1 && !pinch.isInProgress && !pinchActive) {
-                    azimuth -= (event.x - lastX) * 0.007
-                    elevation = (elevation + (event.y - lastY) * 0.007).coerceIn(-1.43, 1.43)
-                    updateCamera()
-                }
-                lastX = event.x; lastY = event.y
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { pinchActive = false }
-        }
-        return true
+    private fun applyOrbitPixels(deltaX: Int, deltaY: Int) {
+        if (!::cameraManipulator.isInitialized || surface.width <= 0 || surface.height <= 0) return
+        if (deltaX == 0 && deltaY == 0) return
+        val centerX = surface.width / 2
+        val centerY = surface.height / 2
+        cameraManipulator.grabBegin(centerX, centerY, false)
+        // Manipulator coordinates use a bottom-left origin; joystick Y is down-positive.
+        cameraManipulator.grabUpdate(centerX + deltaX, centerY - deltaY)
+        cameraManipulator.grabEnd()
     }
 
     override fun doFrame(frameTimeNanos: Long) {
         if (!running || startupFailed || !::viewer.isInitialized) return
-        if (lastFrameNs > 0L) {
-            val dt = ((frameTimeNanos - lastFrameNs).toDouble() * 1e-9).coerceIn(0.0, 0.05)
-            if (orbitPad.dx != 0f || orbitPad.dy != 0f) {
-                azimuth -= orbitPad.dx * dt * 1.8
-                elevation = (elevation - orbitPad.dy * dt * 1.45).coerceIn(-1.43, 1.43)
-                updateCamera()
-            }
-        }
+        val dt = if (lastFrameNs > 0L)
+            ((frameTimeNanos - lastFrameNs).toDouble() * 1e-9).coerceIn(0.0, 0.05).toFloat()
+        else 1f / 60f
         lastFrameNs = frameTimeNanos
         try {
+            if (::cameraManipulator.isInitialized) {
+                if (orbitPad.dx != 0f || orbitPad.dy != 0f) {
+                    // Integrate sub-pixel movement so gentle stick pressure
+                    // still rotates smoothly on low-resolution phones.
+                    joystickFractionX += orbitPad.dx * dt * 155f
+                    joystickFractionY += orbitPad.dy * dt * 155f
+                    val pixelsX = joystickFractionX.toInt()
+                    val pixelsY = joystickFractionY.toInt()
+                    if (pixelsX != 0 || pixelsY != 0) {
+                        applyOrbitPixels(pixelsX, pixelsY)
+                        joystickFractionX -= pixelsX.toFloat()
+                        joystickFractionY -= pixelsY.toFloat()
+                    }
+                } else {
+                    joystickFractionX = 0f
+                    joystickFractionY = 0f
+                }
+                // Filament's native camera manipulator owns the final camera.
+                // ModelViewer.render() reads its getLookAt() each frame.
+                cameraManipulator.update(dt)
+            }
             viewer.render(frameTimeNanos)
             if (!firstFrameCompleted && surface.width > 0 && surface.height > 0) {
                 completeStartup()
@@ -615,7 +631,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             .setMessage(
                 "CREATE: Enter width, height and length, then tap CREATE BOX.\n\n" +
                 "SHAPE: Adjust top width, top length and sideways lean, then tap APPLY SHAPE. Undo/Redo reverses up to 40 edits.\n\n" +
-                "VIEW: Drag or use the right pad to orbit. Pinch to zoom. ▼ HIDE TOOLS expands the screen.\n\n" +
+                "VIEW: Drag the model or use the right joystick to orbit. Pinch to zoom; two fingers pan. FIT VIEW resets the camera; TURN VIEW tests orbit. ▼ HIDE TOOLS expands the screen.\n\n" +
                 "SAVE GLB: Keep the real mesh on your phone. OPEN GLB: Preview existing models.\n\n" +
                 "NEXT: Direct face/edge editing, bevel, extrusion and saved project history. Imported GLBs remain preview-only."
             ).setPositiveButton("GOT IT", null).show()
@@ -634,6 +650,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         running = false
         Choreographer.getInstance().removeFrameCallback(this)
         if (::orbitPad.isInitialized) { orbitPad.dx = 0f; orbitPad.dy = 0f }
+        if (::cameraManipulator.isInitialized) cameraManipulator.grabEnd()
+        joystickFractionX = 0f; joystickFractionY = 0f
         super.onPause()
     }
     override fun onDestroy() {
