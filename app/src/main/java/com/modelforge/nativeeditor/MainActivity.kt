@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PointF
 import android.os.Bundle
 import android.util.Log
 import android.util.AtomicFile
@@ -65,6 +66,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private lateinit var heightField: EditText
     private lateinit var lengthField: EditText
     private lateinit var orbitPad: OrbitPad
+    private lateinit var shapeOverlay: DirectShapeOverlay
+    private lateinit var directShapeButton: Button
+    private var directShapeMode = false
     private lateinit var cameraManipulator: Manipulator
     private var currentGlb: ByteArray? = null
     private var currentName = "Starter Box"
@@ -250,6 +254,12 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
         canvas.addView(status, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
 
+        // The overlay intercepts only touches on editing handles.
+        // Every other gesture reaches the unchanged Filament manipulator.
+        shapeOverlay = DirectShapeOverlay()
+        canvas.addView(shapeOverlay, FrameLayout.LayoutParams(-1, -1))
+        shapeOverlay.visibility = View.GONE
+
         orbitPad = OrbitPad().apply { contentDescription = "Camera orbit joystick" }
         val padParams = FrameLayout.LayoutParams(dp(154), dp(170), Gravity.END or Gravity.BOTTOM)
         padParams.rightMargin = dp(6)
@@ -287,6 +297,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         drawer.addView(actions)
         actionsRow.addView(button("CREATE BOX") { createBox() })
         actionsRow.addView(button("APPLY SHAPE") { applyShape() })
+        directShapeButton = button("◎ EDIT ON MODEL") { toggleDirectShape() }
+        actionsRow.addView(directShapeButton)
         undoButton = button("↶ UNDO") { undoShape() }
         redoButton = button("↷ REDO") { redoShape() }
         actionsRow.addView(undoButton)
@@ -362,11 +374,25 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             setOnClickListener { action() }
         }
 
+    private fun toggleDirectShape() {
+        if (currentShape == null) {
+            toast("On-model editing works with a generated box, not imported GLB previews.")
+            return
+        }
+        directShapeMode = !directShapeMode
+        syncShapeUi()
+        status.text = if (directShapeMode)
+            "EDIT TOP: drag LEAN / WIDTH / LENGTH handles • lift finger to apply"
+        else "View mode: drag to orbit • right joystick • pinch to zoom"
+    }
+
     private fun setDrawerVisible(opened: Boolean) {
         drawer.visibility = if (opened) View.VISIBLE else View.GONE
         drawerToggle.text = if (opened) "▼ HIDE TOOLS" else "▲ OPEN TOOLS"
-        status.text = if (opened) "Right joystick: orbit • pinch: zoom • drag: rotate"
-                      else "Full view • ▲ OPEN TOOLS to continue modeling"
+        status.text = if (directShapeMode)
+            "EDIT TOP: drag colored handles • other gestures still orbit"
+        else if (opened) "Right joystick: orbit • pinch: zoom • drag: rotate"
+        else "Full view • ▲ OPEN TOOLS to continue modeling"
     }
 
     private fun createBox() {
@@ -410,16 +436,30 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 (shiftSlider.progress - 40) / 100f
             )
             if (next == previous) { toast("Shape is already up to date."); return }
-            if (renderShape(next)) {
-                NativeProject.reshape(next.width, next.height, next.length,
-                    next.topWidth, next.topLength, next.shiftX)
-                saveWorkingShape()
-                syncShapeUi()
-            }
+            commitDirectShape(next)
         } catch (error: Exception) {
             toast("Shape rejected: " + (error.message ?: "invalid dimensions"))
         } catch (error: UnsatisfiedLinkError) {
             toast("Native modeling library missing.")
+        }
+    }
+
+    /** Direct viewport handles and slider controls commit the same native edit. */
+    private fun commitDirectShape(next: Shape): Boolean {
+        if (currentShape == null) return false
+        if (next == currentShape) return true
+        return try {
+            if (!renderShape(next)) return false
+            NativeProject.reshape(next.width, next.height, next.length,
+                next.topWidth, next.topLength, next.shiftX)
+            saveWorkingShape()
+            syncShapeUi()
+            if (directShapeMode) status.text =
+                "TOP EDIT APPLIED • Undo available • drag another handle"
+            true
+        } catch (error: Exception) {
+            toast("Edit rejected: " + (error.message ?: "invalid shape"))
+            false
         }
     }
 
@@ -491,6 +531,15 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         topWidthSlider.isEnabled = shape != null
         topLengthSlider.isEnabled = shape != null
         shiftSlider.isEnabled = shape != null
+        if (shape == null) directShapeMode = false
+        if (::directShapeButton.isInitialized) {
+            directShapeButton.isEnabled = shape != null
+            directShapeButton.text = if (directShapeMode) "● TOP EDIT ON" else "◎ EDIT ON MODEL"
+        }
+        if (::shapeOverlay.isInitialized) {
+            shapeOverlay.visibility = if (directShapeMode) View.VISIBLE else View.GONE
+            shapeOverlay.invalidate()
+        }
         undoButton.isEnabled = shape != null && NativeProject.canUndo()
         redoButton.isEnabled = shape != null && NativeProject.canRedo()
         if (shape != null) {
@@ -526,6 +575,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 cameraManipulator.jumpToBookmark(cameraManipulator.homeBookmark)
             }
             status.text = if (imported) "GLB preview: " + name + " • Import editing coming later"
+                          else if (directShapeMode) "TOP EDIT: drag handles • lift to apply"
                           else name + " • Native shaped solid • PBR viewport"
             return true
         } catch (error: Exception) {
@@ -606,6 +656,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 cameraManipulator.update(dt)
             }
             viewer.render(frameTimeNanos)
+            if (directShapeMode) shapeOverlay.invalidate()
             if (!firstFrameCompleted && surface.width > 0 && surface.height > 0) {
                 completeStartup()
             }
@@ -678,7 +729,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             .setTitle("Model Forge Native — Foundation")
             .setMessage(
                 "CREATE: Enter width, height and length, then tap CREATE BOX.\n\n" +
-                "SHAPE: Adjust top width, top length and sideways lean, then tap APPLY SHAPE. Undo/Redo uses the native document during this session. Your last editable shape is restored after relaunch.\n\n" +
+                "SHAPE: Adjust top width, top length and sideways lean, then tap APPLY SHAPE. Or tap EDIT ON MODEL, hide tools and drag the three TOP handles. Undo/Redo uses the native document during this session. Your last editable shape is restored after relaunch.\n\n" +
                 "VIEW: Drag the model or use the right joystick to orbit. Pinch to zoom; two fingers pan. FIT VIEW resets the camera; TURN VIEW tests orbit. ▼ HIDE TOOLS expands the screen.\n\n" +
                 "SAVE GLB: Keep the real mesh on your phone. OPEN GLB: Preview existing models.\n\n" +
                 "NEXT: Direct face/edge editing, bevel, extrusion and saved project history. Imported GLBs remain preview-only."
@@ -698,6 +749,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         running = false
         Choreographer.getInstance().removeFrameCallback(this)
         if (::orbitPad.isInitialized) { orbitPad.dx = 0f; orbitPad.dy = 0f }
+        if (::shapeOverlay.isInitialized) shapeOverlay.cancelGesture()
         if (::cameraManipulator.isInitialized) cameraManipulator.grabEnd()
         joystickFractionX = 0f; joystickFractionY = 0f
         super.onPause()
