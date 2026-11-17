@@ -8,8 +8,8 @@ A strong phone-friendly editor needs a low-friction interface without sacrificin
 |---|---|---|
 | Android UI | Kotlin + framework Android Views, touch-first beginner flow, collapsing tools | accessible Compose components, advanced mode, undo history and object tree |
 | Renderer | Filament 1.69.3 with glTF preview and studio key/fill lighting | PBR HDR studio profiles, occlusion-safe picking, mesh edit overlays |
-| Modeling kernel | C++17 NDK exact-dimension box generator + JNI, desktop native tests | indexed half-edge manifold topology, symmetry, face extrude, bevel, modifiers |
-| Format | GLB 2.0 native primitive export; GLB preview import through Android Files | owned editable native document retaining history, reference images and layers |
+| Modeling kernel | C++17 NDK shape generator + JNI, tested on host and Android | **hybrid** precision CAD B-Rep/NURBS adapter (OCCT candidate, not integrated) and indexed polygon mesh topology for sculpting, imported GLBs, bevel/Boolean mesh operations |
+| Format | GLB 2.0 mesh export; GLB preview import through Android Files | native hybrid document retaining CAD objects, mesh objects, operation history, materials; STEP CAD import/export after feasibility proof |
 | Commands | Core `box(w,h,l)` implemented | versioned commands validated regardless of touch/script/AI origin |
 | Community | No accounts, no networking, no uploads | opted-in publication and remix with ownership, licenses, moderation and reports |
 | Forge AI | No agent integration yet | permissioned local command bridge, preview/approval, opt-in edit examples |
@@ -21,6 +21,12 @@ A strong phone-friendly editor needs a low-friction interface without sacrificin
 - GLB binary is an interchange format, not the future sole editable-project store; no hidden conversion of imported GLBs to uneditable block geometry.
 - Avoid a cloud dependency for basic modeling; community is an opt-in service designed after core offline safety.
 - Do not implement arbitrary Python execution in the mobile UI; future embedded scripting needs sandboxing and explicit permissions.
+
+## Accepted product direction: CAD precision and ease of use
+
+**CAD-grade surfaces and accessible Android touch modeling are both core requirements.** Our triangle mesh generator and Filament renderer stay useful, but future precision solids need a true B-Rep/analytic/NURBS source of truth. The tessellated viewport mesh is a render/export representation, not the editable CAD definition. Do not automatically claim precision CAD functionality for imported GLBs.
+
+See [ADR-0001: Hybrid CAD Kernel](ADR-0001_HYBRID_CAD_KERNEL.md) for researched Open CASCADE Technology (OCCT) candidate, license/Android feasibility gates, user actions and risks. Selection and integration remain pending. A separate Android spike must succeed before including heavy CAD dependencies in the production APK.
 
 ## Next implementation gate
 
