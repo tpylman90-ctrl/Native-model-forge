@@ -1,11 +1,15 @@
 package com.modelforge.nativeeditor
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.os.Bundle
+import android.util.Log
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.MotionEvent
@@ -31,6 +35,7 @@ import com.google.android.filament.android.UiHelper
 import com.google.android.filament.gltfio.Gltfio
 import com.google.android.filament.utils.ModelViewer
 import com.google.android.filament.utils.Float3
+import com.google.android.filament.utils.Utils
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.cos
@@ -76,6 +81,24 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private lateinit var undoButton: Button
     private lateinit var redoButton: Button
     private var running = false
+    private var startupFailed = false
+    private var firstFrameCompleted = false
+    private val startupPrefs by lazy {
+        getSharedPreferences("model_forge_startup", Context.MODE_PRIVATE)
+    }
+
+    private fun markStartup(stage: String) {
+        // Commit synchronously so a native crash still leaves a useful marker.
+        startupPrefs.edit().putString("last_stage", stage)
+            .putBoolean("incomplete", true).commit()
+        Log.i("ModelForgeStartup", stage)
+    }
+
+    private fun completeStartup() {
+        firstFrameCompleted = true
+        startupPrefs.edit().putString("last_stage", "first_frame")
+            .putBoolean("incomplete", false).apply()
+    }
     private var distance = 3.3
     private var azimuth = 0.55
     private var elevation = 0.32
@@ -93,25 +116,84 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         window.statusBarColor = bg
         window.navigationBarColor = bg
         window.decorView.systemUiVisibility = 0
-        Gltfio.init()
+        val previouslyInterrupted = startupPrefs.getBoolean("incomplete", false)
+        val previousStage = startupPrefs.getString("last_stage", "unknown") ?: "unknown"
         createInterface()
-        viewer = ModelViewer(
-            surface, Engine.create(),
-            UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK), null
-        )
-        setupLighting()
-        viewer.camera.setExposure(13.0f, 1.0f / 125.0f, 100.0f)
-        pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScale(detector: ScaleGestureDetector): Boolean {
-                distance = (distance / detector.scaleFactor.toDouble()).coerceIn(1.2, 18.0)
-                updateCamera()
-                pinchActive = true
-                return true
-            }
+        if (previouslyInterrupted) {
+            // Do not repeat a fatal native renderer crash on every launch.
+            startupFailed = true
+            startupPrefs.edit().putBoolean("incomplete", false).apply()
+            showStartupRecovery("Previous startup ended at: " + previousStage)
+            return
+        }
+        try {
+            markStartup("loading_filament_jni")
+            // ModelViewer needs all THREE native layers. Gltfio.init() does
+            // not initialize libfilament-utils-jni: missing Utils.init() can
+            // crash on Manipulator/FramePacer native methods during startup.
+            Utils.init()
+            Gltfio.init()
+            markStartup("constructing_model_viewer")
+            viewer = ModelViewer(
+                surface, Engine.create(),
+                UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK), null
+            )
+            markStartup("setting_up_lighting")
+            setupLighting()
+            viewer.camera.setExposure(13.0f, 1.0f / 125.0f, 100.0f)
+            pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    distance = (distance / detector.scaleFactor.toDouble()).coerceIn(1.2, 18.0)
+                    updateCamera()
+                    pinchActive = true
+                    return true
+                }
+            })
+            surface.setOnTouchListener { _, event -> orbitTouch(event) }
+            updateCamera()
+            markStartup("loading_starter_glb")
+            createBox()
+            markStartup("awaiting_first_frame")
+        } catch (error: Throwable) {
+            Log.e("ModelForgeStartup", "Startup failure", error)
+            startupFailed = true
+            val failedAt = startupPrefs.getString("last_stage", "unknown") ?: "unknown"
+            startupPrefs.edit().putBoolean("incomplete", false).apply()
+            showStartupRecovery("Initialization failed at " + failedAt +
+                ": " + error.javaClass.simpleName + ": " + (error.message ?: "no message"))
+        }
+    }
+
+    private fun showStartupRecovery(message: String) {
+        drawer.visibility = View.GONE
+        drawerToggle.text = "3D RENDERER RECOVERY MODE"
+        drawerToggle.isEnabled = false
+        status.text = "Model Forge launched in safe mode — renderer unavailable"
+        val frame = status.parent as FrameLayout
+        val overlay = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(23, 37, 52))
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        overlay.addView(textLabel("3D VIEWPORT DID NOT START", 18f, accent))
+        overlay.addView(textLabel(message, 14f, text))
+        overlay.addView(textLabel(
+            "You can copy this diagnostic for troubleshooting. No model files are removed.",
+            13f, muted))
+        overlay.addView(button("COPY DIAGNOSTIC") {
+            val report = "Model Forge native v0.2.1\\n" +
+                "Device: " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL +
+                "\\nAndroid API: " + android.os.Build.VERSION.SDK_INT +
+                "\\n" + message
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("Model Forge startup report", report))
+            toast("Diagnostic copied. Paste it into our chat.")
         })
-        surface.setOnTouchListener { _, event -> orbitTouch(event) }
-        updateCamera()
-        createBox()
+        overlay.addView(button("RETRY 3D VIEW") {
+            startupPrefs.edit().putBoolean("incomplete", false).apply()
+            recreate()
+        })
+        frame.addView(overlay, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
     }
 
     private fun createInterface() {
@@ -448,7 +530,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     override fun doFrame(frameTimeNanos: Long) {
-        if (!running) return
+        if (!running || startupFailed || !::viewer.isInitialized) return
         if (lastFrameNs > 0L) {
             val dt = ((frameTimeNanos - lastFrameNs).toDouble() * 1e-9).coerceIn(0.0, 0.05)
             if (orbitPad.dx != 0f || orbitPad.dy != 0f) {
@@ -458,7 +540,20 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             }
         }
         lastFrameNs = frameTimeNanos
-        viewer.render(frameTimeNanos)
+        try {
+            viewer.render(frameTimeNanos)
+            if (!firstFrameCompleted && surface.width > 0 && surface.height > 0) {
+                completeStartup()
+            }
+        } catch (error: Throwable) {
+            Log.e("ModelForgeStartup", "Frame failure", error)
+            startupFailed = true
+            val stage = startupPrefs.getString("last_stage", "render") ?: "render"
+            startupPrefs.edit().putBoolean("incomplete", false).apply()
+            showStartupRecovery("Frame error at " + stage +
+                ": " + error.javaClass.simpleName + ": " + (error.message ?: "no message"))
+            return
+        }
         Choreographer.getInstance().postFrameCallback(this)
     }
 
@@ -538,7 +633,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     override fun onPause() {
         running = false
         Choreographer.getInstance().removeFrameCallback(this)
-        orbitPad.dx = 0f; orbitPad.dy = 0f
+        if (::orbitPad.isInitialized) { orbitPad.dx = 0f; orbitPad.dy = 0f }
         super.onPause()
     }
     override fun onDestroy() {
