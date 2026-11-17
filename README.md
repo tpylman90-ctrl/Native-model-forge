@@ -17,7 +17,7 @@ A native, offline-first Android 3D creation studio designed for people who have 
 ## Architecture
 
 - **Kotlin / native Android Views**: first-phase accessible shell, create flow, local Storage Access Framework, right-side orbit control and retractable editing tools. Compose can be introduced later without coupling the document format to UI widgets.
-- **Google Filament 1.77.3**: native PBR GLB viewport and orbit camera, never the source of truth for topology.
+- **Google Filament 1.69.3**: native PBR GLB viewport and orbit camera, never the source of truth for topology.
 - **Native C++ (CMake / NDK)**: independent modeling kernel. First vertical slice: a true 36-triangle-vertex box with defined dimensions and face normals compiled into the Android application, using JNI.
 - **glTF/GLB boundary**: small versioned GLB packer for the first primitive and external GLB preview; future project format retains objects, history, topology, material provenance and commands. Imported GLBs are **preview-only in v0.1**, not yet editable.
 - **Command layer**: see [docs/COMMAND_PROTOCOL.md](docs/COMMAND_PROTOCOL.md) for the future shared API for touch, scripts and Forge AI.
@@ -34,7 +34,7 @@ A first-time user should create a box, change its dimensions, inspect every face
 
 ## Build
 
-Android SDK 37 (required by Filament 1.77.3; AGP 8.9 support warning suppressed), NDK 27.0.12077973, CMake 3.22.1, JDK 17, Gradle 8.11.1 / Android Gradle Plugin 8.9.2, Kotlin 2.0.21. From an Android-capable machine: `gradle :app:assembleDebug`. GitHub Actions runs a host-native C++ geometry test and builds an arm64 APK.
+Android SDK 35, NDK 27.0.12077973, CMake 3.22.1, JDK 17, Gradle 8.11.1 / Android Gradle Plugin 8.9.2, Kotlin 2.0.21. From an Android-capable machine: `gradle :app:assembleDebug`. GitHub Actions runs a host-native C++ geometry test and builds an arm64 APK.
 
 ## Licensing
 
