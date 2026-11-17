@@ -101,6 +101,28 @@ jobs:
           assert "NativeProject.reshape(" in s and "shapeOverlay.invalidate()" in s
           print("DIRECT_HANDLE_INPUT: PASS edit handles, native shape commit and orbit fall-through")
           PY
+      - name: Verify pinned PUBLIC DEV signing identity and package isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          "$SDK/build-tools/35.0.0/apksigner" verify --print-certs "$APK" > /tmp/model-forge-apksigner.txt
+          "$SDK/build-tools/35.0.0/aapt" dump badging "$APK" > /tmp/model-forge-badging.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          sig=Path("/tmp/model-forge-apksigner.txt").read_text()
+          badging=Path("/tmp/model-forge-badging.txt").read_text()
+          expected="46db533a1104a55efc92e7c384e83c03d8b7ddafa9193817665b776616d02bea"
+          match=re.search(r"Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]+)",sig)
+          assert match, "Cannot find APK signing certificate SHA-256"
+          assert match.group(1).lower() == expected, "APK no longer uses the pinned dev signing key"
+          assert "package: name='com.modelforge.nativeeditor.dev'" in badging, "DEV package ID missing"
+          assert "versionCode='7'" in badging, "DEV versionCode missing"
+          assert "Model Forge DEV" in badging, "DEV app label missing"
+          print("DEV_SIGNING: PASS same pinned signing certificate, isolated application ID, versionCode and label")
+          PY
       - name: Audit APK includes model core, DEX and manifest
         shell: bash
         run: |
