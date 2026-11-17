@@ -32,6 +32,15 @@ jobs:
           build/cad/cad_probe build/cad/results/model-forge-precision.step | tee build/cad/results/test-results.txt
           test -s build/cad/results/model-forge-precision.step
           test -s build/cad/results/model-forge-precision.step.stl
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify watertight CAD tessellation and export mobile GLB preview
+        run: |
+          python -m pip install -r cad/requirements.txt
+          python cad/export_preview.py \
+            build/cad/results/model-forge-precision.step.stl \
+            build/cad/results/model-forge-precision.glb
       - uses: actions/upload-artifact@v4
         if: always()
         with:
