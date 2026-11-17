@@ -22,15 +22,15 @@ A native, offline-first Android 3D creation studio designed for people who have 
 - **glTF/GLB boundary**: small versioned GLB packer for the first primitive and external GLB preview; future project format retains objects, history, topology, material provenance and commands. Imported GLBs are **preview-only in v0.1**, not yet editable.
 - **Command layer**: see [docs/COMMAND_PROTOCOL.md](docs/COMMAND_PROTOCOL.md) for the future shared API for touch, scripts and Forge AI.
 
-## v0.1 foundation: implemented vs planned
+## v0.2 first shaping pass: implemented vs planned
 
-**Implemented target:** native offline Android APK; high-quality Filament viewport; create a dimensioned box through the native C++ kernel; drag or use the right camera pad to orbit; pinch to zoom; collapse the tool drawer; choose an existing GLB for preview; export the generated GLB with the Android document picker. Core geometry unit tests and Android CI.
+**Implemented target:** native offline Android APK; high-quality Filament viewport; dimensioned box and native parametric top-face width/length/sideways-lean shaping; recalculated hard normals; bounded 40-step Undo/Redo for shapes during the current session; actual GLB mesh bounds derived from generated vertices; drag or use right orbit pad to inspect; pinch zoom; collapsible tools; import GLB preview and export generated GLB through Android Files. Core geometry unit tests and Android CI.
 
-**Not yet implemented:** editing imported models, general vertex/edge/face topology, sculpting, undo across edits, Boolean/subdivision, Python execution, user accounts, uploads, or live community. Buttons for future tools must not claim functionality they do not have.
+**Not yet implemented:** editing imported models, arbitrary vertex/edge/face topology, freeform sculpting, persistent project/undo history across restarts, Boolean/subdivision, Python execution, user accounts, uploads, or live community. Changing box dimensions with CREATE BOX resets the current shaping history; APPLY SHAPE changes dimensions and top profile with Undo/Redo. Buttons for future tools must not claim functionality they do not have.
 
 ## First real-user gate
 
-A first-time user should create a box, change its dimensions, inspect every face, collapse/open the tools, export it to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.
+A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.
 
 ## Build
 

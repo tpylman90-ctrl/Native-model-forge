@@ -1,6 +1,6 @@
 # Model Forge command contract — design baseline
 
-**Status: proposal, not yet an executable API.** Native-model-forge v0.1 only implements the `create_box` mesh generator through JNI. Do not treat this document as a working AI or scripting endpoint.
+**Status: proposal, not yet an executable API.** Native-model-forge v0.2 implements `create_box` and a `profiled_box` kernel through JNI, with in-session UI Undo/Redo. The versioned external command envelope is still only a proposal. Do not treat this document as a working AI or scripting endpoint.
 
 ## Design goal
 
@@ -39,7 +39,8 @@ The same `create_box` operation could be constructed by an easy-mode form, an ad
 | Operation | Implementation |
 |---|---|
 | `create_box` | C++ box geometry implemented, command envelope not yet wired |
-| `set_dimensions` | planned |
+| `set_dimensions` | UI-applied via regenerated C++ profile, command envelope planned |
+| `profiled_box` | native kernel + Android sliders implemented, versioned command envelope planned |
 | `transform_object` | planned |
 | `select_surface` | planned |
 | `extrude_face`, `bevel_edges`, `boolean_cut` | planned |
