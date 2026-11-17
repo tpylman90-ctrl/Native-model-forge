@@ -38,6 +38,8 @@ public:
     bool redo();
     bool canUndo() const noexcept { return !undo_.empty(); }
     bool canRedo() const noexcept { return !redo_.empty(); }
+    // Used only when establishing a new base project, not to discard an edit.
+    void clearHistory() noexcept { undo_.clear(); redo_.clear(); }
 
     std::string serialize() const;
     static Document parse(const std::string& data);
