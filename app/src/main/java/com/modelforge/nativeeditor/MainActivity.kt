@@ -29,6 +29,7 @@ import com.google.android.filament.LightManager
 import com.google.android.filament.android.UiHelper
 import com.google.android.filament.gltfio.Gltfio
 import com.google.android.filament.utils.ModelViewer
+import com.google.android.filament.utils.Float3
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.cos
@@ -258,7 +259,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             buffer.put(bytes)
             buffer.flip()
             viewer.loadModelGlb(buffer)
-            viewer.transformToUnitCube()
+            viewer.transformToUnitCube(Float3(0f, 0f, 0f))
             currentGlb = bytes
             currentName = name
             importedPreview = imported
