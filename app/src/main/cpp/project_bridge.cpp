@@ -35,6 +35,7 @@ Java_com_modelforge_nativeeditor_NativeProject_resetAndCreate(
         auto id=candidate.insert(forge::GeometryKind::PolygonMesh,"Starter Box",
                                  "generated:profiled_box",sizes(w,h,l),0);
         candidate.reshape(id,sizes(w,h,l),profile(tw,tl,shift),candidate.revision());
+        candidate.clearHistory();
         document=std::move(candidate);
     } catch (const std::exception& error) { javaError(env,error); }
 }
