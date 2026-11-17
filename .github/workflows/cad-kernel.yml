@@ -1,0 +1,41 @@
+name: Model Forge CAD Precision Gate A
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cad/**'
+      - '.github/workflows/cad-kernel.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  precision-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CAD kernel developer packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libocct-modeling-algorithms-dev libocct-modeling-data-dev libocct-data-exchange-dev
+          dpkg -l | grep libocct | tee occt-version-inventory.txt
+      - name: Compile precision solid probe
+        run: |
+          cmake -S cad -B build/cad -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/cad --parallel 2
+      - name: Test native fillet, Boolean pocket, tessellation, STEP
+        run: |
+          mkdir -p build/cad/results
+          build/cad/cad_probe build/cad/results/model-forge-precision.step | tee build/cad/results/test-results.txt
+          test -s build/cad/results/model-forge-precision.step
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ModelForge-CAD-Gate-A
+          path: |
+            build/cad/results/
+            occt-version-inventory.txt
+          if-no-files-found: warn
