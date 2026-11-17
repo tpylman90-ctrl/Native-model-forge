@@ -1,0 +1,41 @@
+# Model Forge Native
+
+**Create anything. Anywhere. Together.**
+
+A native, offline-first Android 3D creation studio designed for people who have never used a modeling tool **and** for expert creators. An accessible starting experience is a product requirement, not a simplified export format: Easy and Advanced modes will share one document, geometry engine, and high-quality viewport.
+
+## Product principles (baseline, 2026-11-16)
+
+1. **Make creation approachable.** A new user should be able to make, reshape and save a real 3D model without knowing terms such as topology or UVs. Clear labels and visible previews before hidden gestures.
+2. **No ceiling on creativity.** Precision mesh operations, direct selection, high-quality PBR materials, modifiers and scripting will build on the *same* document and command format as Easy mode. Do not trap beginners in low-quality primitives.
+3. **Designed for one phone.** Large touch targets, right-hand orbit control, collapsible tools, recoverable undo, offline GLB creation, and reliable import/export. Never assume a keyboard or desktop computer.
+4. **Creator ownership.** Projects stay private and local unless their owner deliberately shares them. Editable project format and portable GLB are core. No paywall for opening and exporting user-owned work.
+5. **Community with consent.** Future upload, gallery, remix, attribution and permissions will be opt-in. No public API or upload in this foundation; implement moderation and safety before launch.
+6. **AI augments, never replaces agency.** Forge AI will eventually communicate through a versioned, permissioned modeling command interface. Explicit user approval precedes edits; optional training data requires opt-in. The editor remains useful without AI or internet.
+7. **Ship measured improvements.** A feature is not finished until it passes native build, on-device visual/gesture review and import/export regressions. Never claim Blender parity before it exists.
+
+## Architecture
+
+- **Kotlin / native Android Views**: first-phase accessible shell, create flow, local Storage Access Framework, right-side orbit control and retractable editing tools. Compose can be introduced later without coupling the document format to UI widgets.
+- **Google Filament 1.77.3**: native PBR GLB viewport and orbit camera, never the source of truth for topology.
+- **Native C++ (CMake / NDK)**: independent modeling kernel. First vertical slice: a true 36-triangle-vertex box with defined dimensions and face normals compiled into the Android application, using JNI.
+- **glTF/GLB boundary**: small versioned GLB packer for the first primitive and external GLB preview; future project format retains objects, history, topology, material provenance and commands. Imported GLBs are **preview-only in v0.1**, not yet editable.
+- **Command layer**: see [docs/COMMAND_PROTOCOL.md](docs/COMMAND_PROTOCOL.md) for the future shared API for touch, scripts and Forge AI.
+
+## v0.1 foundation: implemented vs planned
+
+**Implemented target:** native offline Android APK; high-quality Filament viewport; create a dimensioned box through the native C++ kernel; drag or use the right camera pad to orbit; pinch to zoom; collapse the tool drawer; choose an existing GLB for preview; export the generated GLB with the Android document picker. Core geometry unit tests and Android CI.
+
+**Not yet implemented:** editing imported models, general vertex/edge/face topology, sculpting, undo across edits, Boolean/subdivision, Python execution, user accounts, uploads, or live community. Buttons for future tools must not claim functionality they do not have.
+
+## First real-user gate
+
+A first-time user should create a box, change its dimensions, inspect every face, collapse/open the tools, export it to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.
+
+## Build
+
+Android SDK 35, NDK 27.0.12077973, CMake 3.22.1, JDK 17, Gradle 8.11.1 / Android Gradle Plugin 8.9.2, Kotlin 2.0.21. From an Android-capable machine: `gradle :app:assembleDebug`. GitHub Actions runs a host-native C++ geometry test and builds an arm64 APK.
+
+## Licensing
+
+The public repository is source-visible. A project license, community terms and monetization strategy have **not** been selected yet; do not assume third-party reuse rights. Third-party dependency license audits must occur before distribution.
