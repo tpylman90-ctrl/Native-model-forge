@@ -28,6 +28,10 @@ A strong phone-friendly editor needs a low-friction interface without sacrificin
 
 See [ADR-0001: Hybrid CAD Kernel](ADR-0001_HYBRID_CAD_KERNEL.md) for researched Open CASCADE Technology (OCCT) candidate, license/Android feasibility gates, user actions and risks. Selection and integration remain pending. A separate Android spike must succeed before including heavy CAD dependencies in the production APK.
 
+## Verified hybrid foundation baseline
+
+The C++ document with geometry kind, stable IDs, guarded revisions and serialization passes standalone native tests, but is not wired to Android yet. The **OCCT desktop Gate A** passed fillet, pocket Boolean, STEP round-trip, coarse/fine tessellation and watertight GLB export. See [foundation milestone 01](FOUNDATION_MILESTONE_01.md). OCCT Android NDK integration, real CAD edit selection and device performance are unverified.
+
 ## Next implementation gate
 
 The minimal honest step after this foundation is an actual editable object document with topology and undo. Use the native GLB first box only to prove mesh generation, renderer interoperability, Android document picker, and GLB export. Then add persistent object IDs, safe operations, and independent round-trip tests.

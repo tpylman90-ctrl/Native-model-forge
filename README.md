@@ -28,6 +28,12 @@ A native, offline-first Android 3D creation studio designed for people who have 
 - **glTF/GLB boundary**: GLB is a triangulated interchange/export format, not the precision CAD source or fully editable project. Imported GLBs remain **preview-only in v0.2**. Future native project retains CAD and mesh objects, feature history, materials and commands; STEP interoperability will be added only after CAD kernel tests.
 - **Command layer**: see [docs/COMMAND_PROTOCOL.md](docs/COMMAND_PROTOCOL.md) for the future shared API for touch, scripts and Forge AI.
 
+## CAD foundation milestone 01 — verified desktop proof
+
+The native C++ core now includes a **standalone hybrid project-document layer** (stable object IDs, polygon vs B-Rep reference kinds, revision validation, metadata serialization and in-session Undo/Redo). This document model is not yet connected to Android controls or persistent CAD data.
+
+A separate **Open CASCADE Technology (OCCT) desktop benchmark passed**: mathematically defined box with 3 mm fillets and a recessed Boolean pocket, STEP write/read, two display tessellation qualities, and a validated **watertight GLB preview**. See [milestone 01 results](docs/FOUNDATION_MILESTONE_01.md). **OCCT is not yet included in an Android APK.** ARM64 compilation, package size, phone performance and licensing remain open gates.
+
 ## v0.2 first shaping pass: implemented vs planned
 
 **Implemented target:** native offline Android APK; high-quality Filament viewport; dimensioned box and native parametric top-face width/length/sideways-lean shaping; recalculated hard normals; bounded 40-step Undo/Redo for shapes during the current session; actual GLB mesh bounds derived from generated vertices; drag or use right orbit pad to inspect; pinch zoom; collapsible tools; import GLB preview and export generated GLB through Android Files. Core geometry unit tests and Android CI.

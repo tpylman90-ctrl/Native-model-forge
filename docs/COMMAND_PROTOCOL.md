@@ -1,6 +1,6 @@
 # Model Forge command contract — design baseline
 
-**Status: proposal, not yet an executable API.** Native-model-forge v0.2 implements `create_box` and a `profiled_box` kernel through JNI, with in-session UI Undo/Redo. The versioned external command envelope is still only a proposal. Do not treat this document as a working AI or scripting endpoint.
+**Status: proposal, not yet an executable API.** Native-model-forge v0.2 implements `create_box` and a `profiled_box` kernel through JNI, with in-session UI Undo/Redo. The C++ hybrid `Document` implementation now supports polygon/CAD-source-reference metadata, stable IDs, guarded revisions, Undo/Redo and snapshot serialization in independent tests; it is not connected to JNI, the Android UI, or a B-Rep payload. The versioned external command envelope is still only a proposal. Do not treat this document as a working AI or scripting endpoint.
 
 ## Design goal
 

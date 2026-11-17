@@ -65,7 +65,7 @@ The editor must preserve novice-friendly verbs while supporting precise radii, m
 - Validate volume/bounds, solid validity, mesh normals; generate coarse and fine tessellation from the *same* B-Rep.
 - STEP export and round-trip readback against dimensional tolerances.
 - Demonstrate repeated editing without re-fitting CAD curves to its own triangles.
-- **Status: NOT RUN.**
+- **Status: PASSED for host proof (Gate A)** in [GitHub Actions run 44147790084](https://github.com/tpylman90-ctrl/Native-model-forge/actions/runs/44147790084): OCCT 7.6.3 generated 3 mm fillets, recessed Boolean pocket, 552/3,056-triangle tessellations, STEP reimport error ~5.82e-10 mm³; STL-to-GLB cleanup yielded a watertight 3,048-triangle GLB. See [milestone evidence](FOUNDATION_MILESTONE_01.md). This is **not** evidence of Android OCCT integration.
 
 ### B — Native Android feasibility
 - Separate CMake/NDK arm64-v8a cross-build CI job, initially manually triggered; no disruption to existing Android APK.
