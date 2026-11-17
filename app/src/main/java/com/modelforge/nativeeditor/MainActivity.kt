@@ -106,8 +106,13 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
         setContentView(main)
         main.setOnApplyWindowInsetsListener { view, insets ->
-            val safe = insets.getInsets(WindowInsets.Type.systemBars())
-            view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val safe = insets.getInsets(WindowInsets.Type.systemBars())
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+            } else {
+                view.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop,
+                    insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+            }
             insets
         }
 
@@ -135,7 +140,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         main.addView(canvas, LinearLayout.LayoutParams(-1, 0, 1f))
 
         status = TextView(this).apply {
-            setTextColor(text)
+            setTextColor(this@MainActivity.text)
             setBackgroundColor(Color.argb(165, 11, 21, 33))
             setPadding(dp(12), dp(9), dp(12), dp(9))
             textSize = 13f
@@ -194,7 +199,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             setSingleLine(true)
             setText(initial)
             textSize = 18f
-            setTextColor(text)
+            setTextColor(this@MainActivity.text)
             setSelectAllOnFocus(true)
             setBackgroundColor(Color.rgb(35, 53, 68))
             setPadding(dp(12), dp(9), dp(10), dp(9))
@@ -217,7 +222,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             text = label
             textSize = 14f
             isAllCaps = false
-            setTextColor(text)
+            setTextColor(this@MainActivity.text)
             minimumHeight = dp(54)
             setOnClickListener { action() }
         }
@@ -340,7 +345,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
             .setType("application/octet-stream")
-        intent.putExtra(Intent.EXTRA_TITLE, "ModelForgeNative-" + if (importedPreview) "preview" else "box" + ".glb")
+        intent.putExtra(Intent.EXTRA_TITLE, "ModelForgeNative-" + (if (importedPreview) "preview" else "box") + ".glb")
         startActivityForResult(intent, exportCode)
     }
 
@@ -410,7 +415,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         super.onDestroy()
     }
 
-    private inner class OrbitPad : View(this) {
+    private inner class OrbitPad : View(this@MainActivity) {
         var dx = 0f
         var dy = 0f
         private val draw = Paint(Paint.ANTI_ALIAS_FLAG)
