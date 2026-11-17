@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace 'com.modelforge.nativeeditor'
-    compileSdk 37
+    compileSdk 35
     ndkVersion '27.0.12077973'
 
     defaultConfig {
@@ -30,7 +30,7 @@ android {
 }
 
 dependencies {
-    implementation 'com.google.android.filament:filament-android:1.77.3'
-    implementation 'com.google.android.filament:gltfio-android:1.77.3'
-    implementation 'com.google.android.filament:filament-utils-android:1.77.3'
+    implementation 'com.google.android.filament:filament-android:1.69.3'
+    implementation 'com.google.android.filament:gltfio-android:1.69.3'
+    implementation 'com.google.android.filament:filament-utils-android:1.69.3'
 }
