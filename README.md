@@ -14,12 +14,16 @@ A native, offline-first Android 3D creation studio designed for people who have 
 6. **AI augments, never replaces agency.** Forge AI will eventually communicate through a versioned, permissioned modeling command interface. Explicit user approval precedes edits; optional training data requires opt-in. The editor remains useful without AI or internet.
 7. **Ship measured improvements.** A feature is not finished until it passes native build, on-device visual/gesture review and import/export regressions. Never claim Blender parity before it exists.
 
+## Quality commitment
+
+**Easy to learn, professional in geometric quality.** The long-term architecture combines a precision CAD solid pathway (B-Rep/NURBS) with polygon editing and sculpting in one Android-native document and interface. CAD surfaces stay mathematical and editable; Filament previews regenerated display meshes. Open CASCADE Technology is a *candidate* undergoing feasibility study, not a shipped dependency. Read [ADR-0001: hybrid CAD kernel](docs/ADR-0001_HYBRID_CAD_KERNEL.md).
+
 ## Architecture
 
 - **Kotlin / native Android Views**: first-phase accessible shell, create flow, local Storage Access Framework, right-side orbit control and retractable editing tools. Compose can be introduced later without coupling the document format to UI widgets.
 - **Google Filament 1.69.3**: native PBR GLB viewport and orbit camera, never the source of truth for topology.
-- **Native C++ (CMake / NDK)**: independent modeling kernel. First vertical slice: a true 36-triangle-vertex box with defined dimensions and face normals compiled into the Android application, using JNI.
-- **glTF/GLB boundary**: small versioned GLB packer for the first primitive and external GLB preview; future project format retains objects, history, topology, material provenance and commands. Imported GLBs are **preview-only in v0.1**, not yet editable.
+- **Native C++ (CMake / NDK)**: independent geometry layer. Current implementation generates shape-controlled triangle meshes through JNI. Planned hybrid architecture adds precision CAD B-Rep/NURBS objects alongside editable meshes, gated by Android resource/performance and license tests.
+- **glTF/GLB boundary**: GLB is a triangulated interchange/export format, not the precision CAD source or fully editable project. Imported GLBs remain **preview-only in v0.2**. Future native project retains CAD and mesh objects, feature history, materials and commands; STEP interoperability will be added only after CAD kernel tests.
 - **Command layer**: see [docs/COMMAND_PROTOCOL.md](docs/COMMAND_PROTOCOL.md) for the future shared API for touch, scripts and Forge AI.
 
 ## v0.2 first shaping pass: implemented vs planned
