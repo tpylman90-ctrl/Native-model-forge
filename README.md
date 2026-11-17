@@ -32,6 +32,10 @@ A native, offline-first Android 3D creation studio designed for people who have 
 
 A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.
 
+## User research and positive-feature design backlog
+
+Our competitive research deliberately tracks **both** user frustrations and successful interaction patterns across Blender, Nomad Sculpt, Shapr3D, Plasticity, Tinkercad, Prisma3D, and Onshape. The [UX Friction Research and Positive Feature Backlog](docs/UX_FRICTION_RESEARCH_2026-11-16.md) maps each finding to an Android-first behavior, proposed priority, architecture dependency, and measurable on-device acceptance test. Findings are qualitative, not statistically representative. New features in this backlog are proposals until coded and tested.
+
 ## Build
 
 Android SDK 35, NDK 27.0.12077973, CMake 3.22.1, JDK 17, Gradle 8.11.1 / Android Gradle Plugin 8.9.2, Kotlin 2.0.21. From an Android-capable machine: `gradle :app:assembleDebug`. GitHub Actions runs a host-native C++ geometry test and builds an arm64 APK.
