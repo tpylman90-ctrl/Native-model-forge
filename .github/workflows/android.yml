@@ -51,6 +51,23 @@ jobs:
           assert src.index('Utils.init()\n            Gltfio.init()') < src.index('viewer = ModelViewer(')
           print('STARTUP_ORDER: PASS utilities JNI then gltfio before ModelViewer')
           PY
+      - name: Guard camera input ownership
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path('app/src/main/java/com/modelforge/nativeeditor/MainActivity.kt').read_text()
+          upstream = Path('app/src/main/java/com/modelforge/nativeeditor/MainActivity.kt')
+          assert 'cameraManipulator = Manipulator.Builder()' in s
+          assert 'UiHelper(UiHelper.ContextErrorPolicy.DONT_CHECK), cameraManipulator' in s
+          assert 'viewer.onTouchEvent(event)' in s
+          assert 'cameraManipulator.grabBegin(' in s
+          assert 'cameraManipulator.grabUpdate(' in s
+          assert 'cameraManipulator.grabEnd()' in s
+          assert s.index('cameraManipulator.update(dt)') < s.index('viewer.render(frameTimeNanos)')
+          assert 'cameraManipulator.jumpToBookmark(cameraManipulator.homeBookmark)' in s
+          assert not any(line.lstrip().startswith('viewer.camera.lookAt(') for line in s.splitlines())
+          print('CAMERA_INPUT: PASS Filament manipulator owns swipe/joystick/zoom and camera state')
+          PY
       - name: Audit APK includes model core, DEX and manifest
         shell: bash
         run: |
