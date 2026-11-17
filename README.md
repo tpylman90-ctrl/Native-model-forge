@@ -58,6 +58,17 @@ A first-time user should create a box, change dimensions, taper and shift the to
 
 Our competitive research deliberately tracks **both** user frustrations and successful interaction patterns across Blender, Nomad Sculpt, Shapr3D, Plasticity, Tinkercad, Prisma3D, and Onshape. The [UX Friction Research and Positive Feature Backlog](docs/UX_FRICTION_RESEARCH_2026-11-16.md) maps each finding to an Android-first behavior, proposed priority, architecture dependency, and measurable on-device acceptance test. Findings are qualitative, not statistically representative. New features in this backlog are proposals until coded and tested.
 
+## Public DEV signing — stable upgrades without uninstall
+
+**From v0.4.1 onward, the debug APK is a separate `com.modelforge.nativeeditor.dev` package**, shown as **Model Forge DEV**. It is signed with one pinned, openly published **TEST-ONLY** key from `signing/model-forge-public-dev.p12.b64`. The Gradle build recreates the keystore in ignored local `build/` output and every GitHub Actions APK must match the pinned certificate fingerprint and package identity.
+
+- **Future debug APKs** with the **same `.dev` package ID**, **same signing key**, and **nondecreasing versionCode** can update an installed DEV copy without uninstalling. Increase versionCode when shipping builds.
+- **v0.4 and older debug APKs** used `com.modelforge.nativeeditor` with per-run signing keys. **v0.4.1 DEV installs alongside them**, rather than updating them; app-private drafts are not automatically transferred between apps. Export GLBs from the old app before cleaning it up.
+- **Warning: this public signing key contains a publicly accessible private key and password.** Anyone can sign an APK that appears to be an update to the DEV package. Install DEV APKs **only from this repository's trusted GitHub Actions builds** and **do not use DEV for secrets, personal or sensitive data, or public distribution**.
+- **Production:** keep `com.modelforge.nativeeditor` exclusively for a **new, privately signed release key** held in GitHub Actions secrets/other controlled signing storage. Do not reuse this published test key for production. The production identity is independent and will install alongside the DEV app; a migration/export plan will be required for user projects.
+
+See [Android signing plan](docs/DEV_SIGNING_POLICY.md).
+
 ## Build
 
 Android SDK 35, NDK 27.0.12077973, CMake 3.22.1, JDK 17, Gradle 8.11.1 / Android Gradle Plugin 8.9.2, Kotlin 2.0.21. From an Android-capable machine: `gradle :app:assembleDebug`. GitHub Actions runs a host-native C++ geometry test and builds an arm64 APK.
