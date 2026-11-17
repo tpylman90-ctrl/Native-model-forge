@@ -7,7 +7,7 @@ A strong phone-friendly editor needs a low-friction interface without sacrificin
 | Layer | Foundation | Roadmap |
 |---|---|---|
 | Android UI | Kotlin + framework Android Views, touch-first beginner flow, collapsing tools | accessible Compose components, advanced mode, undo history and object tree |
-| Renderer | Filament 1.77.3 with glTF preview and studio key/fill lighting | PBR HDR studio profiles, occlusion-safe picking, mesh edit overlays |
+| Renderer | Filament 1.69.3 with glTF preview and studio key/fill lighting | PBR HDR studio profiles, occlusion-safe picking, mesh edit overlays |
 | Modeling kernel | C++17 NDK exact-dimension box generator + JNI, desktop native tests | indexed half-edge manifold topology, symmetry, face extrude, bevel, modifiers |
 | Format | GLB 2.0 native primitive export; GLB preview import through Android Files | owned editable native document retaining history, reference images and layers |
 | Commands | Core `box(w,h,l)` implemented | versioned commands validated regardless of touch/script/AI origin |
