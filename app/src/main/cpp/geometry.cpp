@@ -33,3 +33,40 @@ std::vector<Vertex> box(float width, float height, float length) {
     return out;
 }
 }
+
+namespace forge {
+namespace {
+using Point = std::array<float,3>;
+Point delta(Point a,Point b) { return {a[0]-b[0],a[1]-b[1],a[2]-b[2]}; }
+Point cross3(Point a,Point b) {
+    return {a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]};
+}
+void profileQuad(std::vector<Vertex>& out,Point a,Point b,Point c,Point d) {
+    Point normal=cross3(delta(b,a),delta(c,a));
+    float len=std::sqrt(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
+    if (!std::isfinite(len) || len < 1e-9f) throw std::invalid_argument("degenerate surface");
+    for(Point v:{a,b,c,a,c,d})
+        out.push_back({v[0],v[1],v[2],normal[0]/len,normal[1]/len,normal[2]/len});
+}
+}
+std::vector<Vertex> profiledBox(float w,float h,float l,float topW,float topL,float shiftX) {
+    // Delegate dimension validation to the existing standalone box kernel.
+    box(w,h,l);
+    if(!std::isfinite(topW)||!std::isfinite(topL)||!std::isfinite(shiftX)||
+       topW<0.35f||topW>1.75f||topL<0.35f||topL>1.75f||
+       shiftX < -0.4f||shiftX > 0.4f)
+        throw std::invalid_argument("profile outside allowed scale or shift");
+    const float x=w/2.f,y=h/2.f,z=l/2.f,s=shiftX*w;
+    const Point blb={-x,-y,-z},brb={x,-y,-z},blf={-x,-y,z},brf={x,-y,z};
+    const Point tlb={-x*topW+s,y,-z*topL},trb={x*topW+s,y,-z*topL};
+    const Point tlf={-x*topW+s,y,z*topL},trf={x*topW+s,y,z*topL};
+    std::vector<Vertex> out;out.reserve(36);
+    profileQuad(out,blf,brf,trf,tlf);
+    profileQuad(out,brb,blb,tlb,trb);
+    profileQuad(out,brf,brb,trb,trf);
+    profileQuad(out,blb,blf,tlf,tlb);
+    profileQuad(out,tlf,trf,trb,tlb);
+    profileQuad(out,blb,brb,brf,blf);
+    return out;
+}
+}

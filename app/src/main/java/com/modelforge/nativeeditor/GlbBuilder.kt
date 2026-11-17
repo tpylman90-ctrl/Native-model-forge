@@ -11,16 +11,27 @@ import java.util.Locale
  * It does NOT pretend to modify arbitrary imported GLB topology.
  */
 object GlbBuilder {
-    fun box(width: Float, height: Float, length: Float): ByteArray {
-        val packed = NativeGeometry.generateBox(width, height, length)
+    fun box(width: Float, height: Float, length: Float): ByteArray =
+        profiledBox(width, height, length, 1f, 1f, 0f)
+
+    fun profiledBox(
+        width: Float, height: Float, length: Float,
+        topWidth: Float, topLength: Float, shiftX: Float
+    ): ByteArray {
+        val packed = NativeGeometry.generateProfiledBox(width, height, length, topWidth, topLength, shiftX)
         require(packed.size == 36 * 6) { "Native box kernel produced invalid triangle layout" }
         val bin = ByteBuffer.allocate(packed.size * 4).order(ByteOrder.LITTLE_ENDIAN)
         for (number in packed) bin.putFloat(number)
-        val w = fmt(width / 2f)
-        val h = fmt(height / 2f)
-        val l = fmt(length / 2f)
+        val min = FloatArray(3) { Float.POSITIVE_INFINITY }
+        val max = FloatArray(3) { Float.NEGATIVE_INFINITY }
+        for (v in packed.indices step 6) for (axis in 0..2) {
+            min[axis] = kotlin.math.min(min[axis], packed[v + axis])
+            max[axis] = kotlin.math.max(max[axis], packed[v + axis])
+        }
+        val low = min.joinToString(",") { fmt(it) }
+        val high = max.joinToString(",") { fmt(it) }
         val json = """{
-          "asset":{"version":"2.0","generator":"Model Forge Native 0.1 / C++ mesh kernel"},
+          "asset":{"version":"2.0","generator":"Model Forge Native 0.2 / C++ shape kernel"},
           "scene":0,"scenes":[{"nodes":[0]}],
           "nodes":[{"mesh":0,"name":"Starter Box"}],
           "meshes":[{"name":"Starter Box","primitives":[{"attributes":{"POSITION":0,"NORMAL":1},"material":0,"mode":4}]}],
@@ -28,12 +39,12 @@ object GlbBuilder {
           "buffers":[{"byteLength":@LEN@}],
           "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":@LEN@,"byteStride":24,"target":34962}],
           "accessors":[
-            {"bufferView":0,"byteOffset":0,"componentType":5126,"count":36,"type":"VEC3","min":[-@W@,-@H@,-@L@],"max":[@W@,@H@,@L@]},
+            {"bufferView":0,"byteOffset":0,"componentType":5126,"count":36,"type":"VEC3","min":[@MIN@],"max":[@MAX@]},
             {"bufferView":0,"byteOffset":12,"componentType":5126,"count":36,"type":"VEC3"}
           ]
         }""".trimIndent()
             .replace("@LEN@", bin.capacity().toString())
-            .replace("@W@", w).replace("@H@", h).replace("@L@", l)
+            .replace("@MIN@", low).replace("@MAX@", high)
             .toByteArray(StandardCharsets.UTF_8)
         val jsonPad = (4 - json.size % 4) % 4
         val binPad = (4 - bin.capacity() % 4) % 4
@@ -53,7 +64,7 @@ object GlbBuilder {
         return bytes.array()
     }
 
-    private fun fmt(number: Float): String = String.format(Locale.US, "%.5f", number)
+    private fun fmt(number: Float): String = String.format(Locale.US, "%.9g", number)
 
     fun isValidHeader(bytes: ByteArray): Boolean {
         if (bytes.size < 20 || bytes.size > 90 * 1024 * 1024) return false
