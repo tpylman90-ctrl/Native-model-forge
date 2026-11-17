@@ -86,6 +86,21 @@ jobs:
           assert "undoHistory" not in ui and "redoHistory" not in ui
           print("NATIVE_DOCUMENT_BRIDGE: PASS")
           PY
+      - name: Guard direct top-face handles and orbit input
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path("app/src/main/java/com/modelforge/nativeeditor/MainActivity.kt").read_text()
+          assert "private inner class DirectShapeOverlay" in s
+          assert "private enum class TopHandleKind" in s
+          assert "TopHandleKind.LEAN" in s and "TopHandleKind.WIDTH" in s
+          assert "TopHandleKind.LENGTH" in s and "commitDirectShape(next)" in s
+          assert "parent.requestDisallowInterceptTouchEvent(true)" in s
+          assert "if (dx * dx + dy * dy > dp(44)" in s
+          assert "viewer.onTouchEvent(event)" in s
+          assert "NativeProject.reshape(" in s and "shapeOverlay.invalidate()" in s
+          print("DIRECT_HANDLE_INPUT: PASS edit handles, native shape commit and orbit fall-through")
+          PY
       - name: Audit APK includes model core, DEX and manifest
         shell: bash
         run: |
