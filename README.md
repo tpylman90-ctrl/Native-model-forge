@@ -1,6 +1,8 @@
 # Model Forge Native
 
-**Create anything. Anywhere. Together.**
+**A genuinely capable modeling studio that happens to fit in your pocket.**
+
+*Create anything. Anywhere. Together.*
 
 A native, offline-first Android 3D creation studio designed for people who have never used a modeling tool **and** for expert creators. An accessible starting experience is a product requirement, not a simplified export format: Easy and Advanced modes will share one document, geometry engine, and high-quality viewport.
 
