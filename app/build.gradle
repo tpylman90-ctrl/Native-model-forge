@@ -8,14 +8,40 @@ android {
     compileSdk 35
     ndkVersion '27.0.12077973'
 
+    // TEST-ONLY signer. The whole private key is public in this repository.
+    // The production package MUST NEVER use this signer. Decode once into
+    // ignored build output so cloning/CI can reproduce the same debug key.
+    def encodedDevKey = rootProject.file('signing/model-forge-public-dev.p12.b64')
+    def devKeystore = new File(rootProject.buildDir, 'signing/model-forge-public-dev.p12')
+    if (!encodedDevKey.isFile()) {
+        throw new GradleException('Public development keystore source is missing.')
+    }
+    devKeystore.parentFile.mkdirs()
+    def pinnedBytes = java.util.Base64.getMimeDecoder().decode(
+        encodedDevKey.getText('UTF-8'))
+    if (!devKeystore.isFile() || !java.util.Arrays.equals(devKeystore.bytes, pinnedBytes)) {
+        devKeystore.bytes = pinnedBytes
+    }
+
+    signingConfigs {
+        publicDev {
+            storeFile devKeystore
+            storeType 'pkcs12'
+            storePassword 'model-forge-dev-only-2026'
+            keyAlias 'forge-public-dev'
+            keyPassword 'model-forge-dev-only-2026'
+        }
+    }
+
     defaultConfig {
         applicationId 'com.modelforge.nativeeditor'
         minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName '0.4.0-direct-top-handles'
+        versionCode 7
+        versionName '0.4.1-direct-top-handles'
         ndk { abiFilters 'arm64-v8a' }
         externalNativeBuild { cmake { cppFlags '-std=c++17 -Wall -Wextra -Werror' } }
+        manifestPlaceholders = [appLabel: 'Model Forge Native']
     }
     externalNativeBuild {
         cmake {
@@ -25,7 +51,21 @@ android {
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = '17' }
-    buildTypes { release { minifyEnabled false } }
+    buildTypes {
+        debug {
+            // Dedicated test identity. Installs alongside older APKs and
+            // future secret-signed production packages, never replacing them.
+            applicationIdSuffix '.dev'
+            versionNameSuffix '-public-dev'
+            signingConfig signingConfigs.publicDev
+            manifestPlaceholders = [appLabel: 'Model Forge DEV']
+        }
+        release {
+            minifyEnabled false
+            // A private signing config must be supplied for production later.
+            // Never reuse the publicDev signingConfig on a release.
+        }
+    }
     packaging { jniLibs { useLegacyPackaging = true } }
 }
 
