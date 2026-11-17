@@ -19,6 +19,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import android.text.InputType
@@ -61,6 +62,19 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private var currentGlb: ByteArray? = null
     private var currentName = "Starter Box"
     private var importedPreview = false
+    // The current editable primitive is independent of Filament render entities.
+    private data class Shape(
+        val width: Float, val height: Float, val length: Float,
+        val topWidth: Float = 1f, val topLength: Float = 1f, val shiftX: Float = 0f
+    )
+    private var currentShape: Shape? = null
+    private val undoHistory = ArrayDeque<Shape>()
+    private val redoHistory = ArrayDeque<Shape>()
+    private lateinit var topWidthSlider: SeekBar
+    private lateinit var topLengthSlider: SeekBar
+    private lateinit var shiftSlider: SeekBar
+    private lateinit var undoButton: Button
+    private lateinit var redoButton: Button
     private var running = false
     private var distance = 3.3
     private var azimuth = 0.55
@@ -175,16 +189,26 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         heightField = dimensionField(fields, "HEIGHT", "1.0")
         lengthField = dimensionField(fields, "LENGTH", "3.0")
 
+        drawer.addView(textLabel("SHAPE • TOP SURFACE", 14f, accent))
+        drawer.addView(textLabel("Move the top of your solid, then tap APPLY SHAPE.", 12f, muted))
+        topWidthSlider = profileSlider(drawer, "TOP WIDTH", 35, 175, 100) { it.toString() + "%" }
+        topLengthSlider = profileSlider(drawer, "TOP LENGTH", 35, 175, 100) { it.toString() + "%" }
+        shiftSlider = profileSlider(drawer, "LEAN LEFT / RIGHT", -40, 40, 0) { it.toString() + "% of width" }
         val actions = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
         val actionsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         actions.addView(actionsRow)
         drawer.addView(actions)
         actionsRow.addView(button("CREATE BOX") { createBox() })
+        actionsRow.addView(button("APPLY SHAPE") { applyShape() })
+        undoButton = button("↶ UNDO") { undoShape() }
+        redoButton = button("↷ REDO") { redoShape() }
+        actionsRow.addView(undoButton)
+        actionsRow.addView(redoButton)
         actionsRow.addView(button("FIT VIEW") {
             azimuth = 0.55; elevation = 0.32; distance = 3.3; updateCamera()
         })
         actionsRow.addView(button("ADVANCED • SOON") {
-            toast("Precise face/edge modeling is the next milestone; this version is the native foundation.")
+            toast("Top-surface shaping works now. Arbitrary face/edge editing is coming later.")
         })
         drawer.addView(textLabel("Offline-first • GLB export • Community sharing planned, not active", 11f, muted))
     }
@@ -208,6 +232,27 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
         column.addView(field, LinearLayout.LayoutParams(-1, dp(52)))
         return field
+    }
+
+    private fun profileSlider(
+        parent: LinearLayout, name: String, min: Int, max: Int, initial: Int,
+        display: (Int) -> String
+    ): SeekBar {
+        val caption = textLabel(name + "  •  " + display(initial), 12f, muted)
+        parent.addView(caption)
+        val bar = SeekBar(this).apply {
+            this.max = max - min
+            progress = initial - min
+        }
+        bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(view: SeekBar?, progress: Int, fromUser: Boolean) {
+                caption.text = name + "  •  " + display(min + progress)
+            }
+            override fun onStartTrackingTouch(view: SeekBar?) = Unit
+            override fun onStopTrackingTouch(view: SeekBar?) = Unit
+        })
+        parent.addView(bar, LinearLayout.LayoutParams(-1, dp(42)))
+        return bar
     }
 
     private fun textLabel(value: String, fontSize: Float, color: Int): TextView =
@@ -237,11 +282,16 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun createBox() {
         try {
-            val w = widthField.text.toString().toFloat()
-            val h = heightField.text.toString().toFloat()
-            val l = lengthField.text.toString().toFloat()
-            val bytes = GlbBuilder.box(w, h, l)
-            present(bytes, "Box " + w + " × " + h + " × " + l, false)
+            val solid = Shape(
+                widthField.text.toString().toFloat(),
+                heightField.text.toString().toFloat(),
+                lengthField.text.toString().toFloat()
+            )
+            if (renderShape(solid)) {
+                undoHistory.clear()
+                redoHistory.clear()
+                syncShapeUi()
+            }
         } catch (error: Exception) {
             toast("Enter valid positive dimensions (0.01–10000): " + (error.message ?: "invalid"))
         } catch (error: UnsatisfiedLinkError) {
@@ -249,12 +299,86 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
     }
 
-    private fun present(bytes: ByteArray, name: String, imported: Boolean) {
+    private fun renderShape(shape: Shape): Boolean {
+        val bytes = GlbBuilder.profiledBox(
+            shape.width, shape.height, shape.length,
+            shape.topWidth, shape.topLength, shape.shiftX
+        )
+        return present(bytes, "Solid " + shape.width + " × " + shape.height + " × " + shape.length,
+            false, shape)
+    }
+
+    private fun applyShape() {
+        val previous = currentShape ?: run { toast("Create a box before shaping."); return }
+        try {
+            val next = Shape(
+                widthField.text.toString().toFloat(),
+                heightField.text.toString().toFloat(),
+                lengthField.text.toString().toFloat(),
+                (topWidthSlider.progress + 35) / 100f,
+                (topLengthSlider.progress + 35) / 100f,
+                (shiftSlider.progress - 40) / 100f
+            )
+            if (next == previous) { toast("Shape is already up to date."); return }
+            if (renderShape(next)) {
+                undoHistory.addLast(previous)
+                if (undoHistory.size > 40) undoHistory.removeFirst()
+                redoHistory.clear()
+                syncShapeUi()
+            }
+        } catch (error: Exception) {
+            toast("Shape rejected: " + (error.message ?: "invalid dimensions"))
+        } catch (error: UnsatisfiedLinkError) {
+            toast("Native modeling library missing.")
+        }
+    }
+
+    private fun undoShape() {
+        val previous = undoHistory.lastOrNull() ?: return
+        val active = currentShape ?: return
+        if (renderShape(previous)) {
+            undoHistory.removeLast()
+            redoHistory.addLast(active)
+            syncShapeUi()
+        }
+    }
+
+    private fun redoShape() {
+        val next = redoHistory.lastOrNull() ?: return
+        val active = currentShape ?: return
+        if (renderShape(next)) {
+            redoHistory.removeLast()
+            undoHistory.addLast(active)
+            syncShapeUi()
+        }
+    }
+
+    private fun syncShapeUi() {
+        val shape = currentShape
+        topWidthSlider.isEnabled = shape != null
+        topLengthSlider.isEnabled = shape != null
+        shiftSlider.isEnabled = shape != null
+        undoButton.isEnabled = shape != null && undoHistory.isNotEmpty()
+        redoButton.isEnabled = shape != null && redoHistory.isNotEmpty()
+        if (shape != null) {
+            widthField.setText(shape.width.toString())
+            heightField.setText(shape.height.toString())
+            lengthField.setText(shape.length.toString())
+            topWidthSlider.progress = (shape.topWidth * 100f).toInt() - 35
+            topLengthSlider.progress = (shape.topLength * 100f).toInt() - 35
+            shiftSlider.progress = (shape.shiftX * 100f).toInt() + 40
+        }
+    }
+
+    private fun present(
+        bytes: ByteArray, name: String, imported: Boolean, shape: Shape? = null
+    ): Boolean {
         if (!GlbBuilder.isValidHeader(bytes)) {
             toast("Invalid GLB format; model was not replaced.")
-            return
+            return false
         }
         try {
+            val keepCamera = shape != null && currentShape != null
             val buffer = ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.LITTLE_ENDIAN)
             buffer.put(bytes)
             buffer.flip()
@@ -263,12 +387,16 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             currentGlb = bytes
             currentName = name
             importedPreview = imported
-            azimuth = 0.55; elevation = 0.32; distance = 3.3
+            currentShape = shape
+            syncShapeUi()
+            if (!keepCamera) { azimuth = 0.55; elevation = 0.32; distance = 3.3 }
             updateCamera()
             status.text = if (imported) "GLB preview: " + name + " • Import editing coming later"
-                          else name + " • C++ geometry • PBR viewport"
+                          else name + " • Native shaped solid • PBR viewport"
+            return true
         } catch (error: Exception) {
             toast("GLB could not render: " + (error.message ?: "unsupported asset"))
+            return false
         }
     }
 
@@ -370,7 +498,11 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     stream.toByteArray()
                 } ?: throw IllegalArgumentException("Document could not be read")
                 val name = uri.lastPathSegment?.substringAfterLast('/') ?: "Imported model"
-                present(bytes, name, true)
+                if (present(bytes, name, true)) {
+                    undoHistory.clear()
+                    redoHistory.clear()
+                    syncShapeUi()
+                }
             } else if (requestCode == exportCode) {
                 val bytes = currentGlb ?: return
                 contentResolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
@@ -386,10 +518,11 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         android.app.AlertDialog.Builder(this)
             .setTitle("Model Forge Native — Foundation")
             .setMessage(
-                "CREATE: Set width, height and length and tap CREATE BOX. Geometry comes from a native C++ modeling kernel.\n\n" +
+                "CREATE: Enter width, height and length, then tap CREATE BOX.\n\n" +
+                "SHAPE: Adjust top width, top length and sideways lean, then tap APPLY SHAPE. Undo/Redo reverses up to 40 edits.\n\n" +
                 "VIEW: Drag or use the right pad to orbit. Pinch to zoom. ▼ HIDE TOOLS expands the screen.\n\n" +
                 "SAVE GLB: Keep the real mesh on your phone. OPEN GLB: Preview existing models.\n\n" +
-                "COMING NEXT: Editable face/edge topology, bevel, extrusion, full project history and optional community. Imported GLBs are preview-only in this build."
+                "NEXT: Direct face/edge editing, bevel, extrusion and saved project history. Imported GLBs remain preview-only."
             ).setPositiveButton("GOT IT", null).show()
     }
 
