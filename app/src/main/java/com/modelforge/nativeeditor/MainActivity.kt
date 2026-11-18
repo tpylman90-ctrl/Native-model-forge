@@ -73,6 +73,14 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private lateinit var extrudeDepthField: EditText
     private lateinit var faceSelectionText: TextView
     private lateinit var extrudeApplyButton: Button
+    private lateinit var regionWidthSlider: SeekBar
+    private lateinit var regionHeightSlider: SeekBar
+    private lateinit var regionOffsetUSlider: SeekBar
+    private lateinit var regionOffsetVSlider: SeekBar
+    private lateinit var regionRectButton: Button
+    private lateinit var regionOvalButton: Button
+    private var regionKind=0
+    private var baseGeneratedMesh: FloatArray? = null
     private var faceMode = false
     private var selectedFace: Int? = null
     private var currentGeneratedMesh: FloatArray? = null
@@ -88,10 +96,18 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private var currentName = "Starter Box"
     private var importedPreview = false
     // The current editable primitive is independent of Filament render entities.
+    private data class FaceArea(
+        val kind: Int = -1,
+        val width: Float = 0.55f,
+        val height: Float = 0.55f,
+        val offsetU: Float = 0f,
+        val offsetV: Float = 0f,
+        val depth: Float = 0f
+    )
     private data class Shape(
         val width: Float, val height: Float, val length: Float,
         val topWidth: Float = 1f, val topLength: Float = 1f, val shiftX: Float = 0f,
-        val extrudedFace: Int = -1, val extrusionDepth: Float = 0f
+        val areas: List<FaceArea> = List(6) { FaceArea() }
     )
     private var currentShape: Shape? = null
     // Native C++ Document owns object IDs, revisions, and in-session undo/redo.
@@ -333,9 +349,29 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         actionsRow.addView(button("ADVANCED • SOON") {
             toast("Top-surface shaping works now. Arbitrary face/edge editing is coming later.")
         })
-        drawer.addView(textLabel("FACE TOOLS • TAP A SURFACE, THEN EXTRUDE", 13f, accent))
+        drawer.addView(textLabel("FACE TOOLS • CHOOSE YOUR PANEL AREA", 13f, accent))
         faceSelectionText = textLabel("Face selection is off", 12f, muted)
         drawer.addView(faceSelectionText)
+        val areaShapeRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        drawer.addView(areaShapeRow)
+        regionRectButton=button("▭ RECTANGLE") { regionKind=0; updateAreaButtons(); faceOverlay.invalidate() }
+        regionOvalButton=button("◯ OVAL") { regionKind=1; updateAreaButtons(); faceOverlay.invalidate() }
+        areaShapeRow.addView(regionRectButton,LinearLayout.LayoutParams(0,dp(52),1f))
+        areaShapeRow.addView(regionOvalButton,LinearLayout.LayoutParams(0,dp(52),1f))
+        regionWidthSlider=profileSlider(drawer,"AREA WIDTH",15,85,55) { "$it% of face" }
+        regionHeightSlider=profileSlider(drawer,"AREA HEIGHT",15,85,55) { "$it% of face" }
+        regionOffsetUSlider=profileSlider(drawer,"LEFT / RIGHT POSITION",-80,80,0) { "$it%" }
+        regionOffsetVSlider=profileSlider(drawer,"UP / DOWN POSITION",-80,80,0) { "$it%" }
+        for(slider in arrayOf(regionWidthSlider,regionHeightSlider,regionOffsetUSlider,regionOffsetVSlider)) {
+            slider.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(v:SeekBar?,progress:Int,fromUser:Boolean) {
+                    if(fromUser && ::faceOverlay.isInitialized) faceOverlay.invalidate()
+                }
+                override fun onStartTrackingTouch(v:SeekBar?) = Unit
+                override fun onStopTrackingTouch(v:SeekBar?) = Unit
+            })
+        }
+        updateAreaButtons()
         val extrusionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         drawer.addView(extrusionRow)
         extrudeDepthField = EditText(this).apply {
@@ -356,7 +392,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         drawer.addView(stepRow)
         stepRow.addView(button("− 0.10 m") { nudgeFace(-0.10f) })
         stepRow.addView(button("+ 0.10 m") { nudgeFace(0.10f) })
-        drawer.addView(textLabel("One inset face feature per generated box. Negative = recess.", 11f, muted))
+        drawer.addView(button("REMOVE SELECTED FACE EDIT") { removeFaceEdit() })
+        drawer.addView(textLabel("Each face keeps its own shape, size, and depth. Other faces stay intact.", 11f, muted))
         drawer.addView(textLabel("Offline-first • GLB export • Community sharing planned, not active", 11f, muted))
         syncShapeUi()
     }
@@ -479,16 +516,28 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun renderShape(shape: Shape): Boolean {
-        val mesh = NativeGeometry.generateFaceExtrudedBox(
-            shape.width, shape.height, shape.length,
-            shape.topWidth, shape.topLength, shape.shiftX,
-            shape.extrudedFace, shape.extrusionDepth
+        val parts=FloatArray(36)
+        shape.areas.forEachIndexed { face,f ->
+            val p=face*6
+            parts[p]=f.kind.toFloat()
+            parts[p+1]=f.width
+            parts[p+2]=f.height
+            parts[p+3]=f.offsetU
+            parts[p+4]=f.offsetV
+            parts[p+5]=f.depth
+        }
+        val mesh=NativeGeometry.generateMultiFaceBox(
+            shape.width,shape.height,shape.length,
+            shape.topWidth,shape.topLength,shape.shiftX,parts
         )
         val bytes = GlbBuilder.fromPacked(mesh)
         val ok = present(bytes, "Solid " + shape.width + " × " + shape.height + " × " + shape.length,
             false, shape)
         if (ok) {
             currentGeneratedMesh = mesh
+            baseGeneratedMesh=NativeGeometry.generateProfiledBox(
+                shape.width,shape.height,shape.length,
+                shape.topWidth,shape.topLength,shape.shiftX)
             if (::faceOverlay.isInitialized) faceOverlay.invalidate()
         }
         return ok
@@ -541,9 +590,14 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun fromNative(): Shape? {
         val values = NativeProject.currentShape() ?: return null
-        if (values.size != 8) return null
+        if (values.size != 42) return null
+        val areas=List(6) { face ->
+            val p=6+face*6
+            FaceArea(values[p].toInt(),values[p+1],values[p+2],
+                     values[p+3],values[p+4],values[p+5])
+        }
         return Shape(values[0], values[1], values[2],
-            values[3], values[4], values[5], values[6].toInt(), values[7])
+            values[3], values[4], values[5], areas)
     }
 
     private fun undoShape() {
@@ -624,6 +678,12 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 else "Selected: " + faceName(face) + " • positive = raised, negative = recessed"
         }
         if (::extrudeApplyButton.isInitialized) extrudeApplyButton.isEnabled = faceMode && selectedFace != null
+        if (::regionRectButton.isInitialized) regionRectButton.isEnabled=faceMode && selectedFace!=null
+        if (::regionOvalButton.isInitialized) regionOvalButton.isEnabled=faceMode && selectedFace!=null
+        if (::regionWidthSlider.isInitialized) {
+            for(slider in arrayOf(regionWidthSlider,regionHeightSlider,regionOffsetUSlider,regionOffsetVSlider))
+                slider.isEnabled=faceMode && selectedFace!=null
+        }
         if (::directShapeButton.isInitialized) {
             directShapeButton.isEnabled = shape != null
             directShapeButton.text = if (directShapeMode) "● TOP EDIT ON" else "◎ EDIT ON MODEL"
@@ -659,7 +719,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             viewer.loadModelGlb(buffer)
             viewer.transformToUnitCube(Float3(0f, 0f, 0f))
             currentGlb = bytes
-            if (imported) currentGeneratedMesh = null
+            if (imported) { currentGeneratedMesh = null; baseGeneratedMesh = null }
             currentName = name
             importedPreview = imported
             currentShape = shape
