@@ -84,6 +84,16 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private var regionKind=0
     private var baseGeneratedMesh: FloatArray? = null
     private var faceMode = false
+    private lateinit var drawRegionButton: Button
+    private lateinit var regionCurveButton: Button
+    private var drawAreaMode = false
+    private var drawStartUv: FaceUv? = null
+    private var drawPreview: FaceArea? = null
+    private var drawingFace = -1
+    private var edgeDragIndex = -1
+    private var edgeStartUv: FaceUv? = null
+    private var edgeStartArea: FaceArea? = null
+    private var edgeLiveArea: FaceArea? = null
     private var selectedFace: Int? = null
     private var currentGeneratedMesh: FloatArray? = null
     private var faceTouchStartX = 0f
@@ -104,8 +114,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         val height: Float = 0.55f,
         val offsetU: Float = 0f,
         val offsetV: Float = 0f,
-        val depth: Float = 0f
+        val depth: Float = 0f,
+        val curves: List<Float> = List(4) { 0f }
     )
+    private data class FaceUv(val u: Float, val v: Float)
     private data class Shape(
         val width: Float, val height: Float, val length: Float,
         val topWidth: Float = 1f, val topLength: Float = 1f, val shiftX: Float = 0f,
@@ -346,6 +358,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         actionsRow.addView(directShapeButton)
         faceButton = button("▣ SELECT FACE") { toggleFaceMode() }
         actionsRow.addView(faceButton)
+        drawRegionButton=button("▱ DRAW AREA") { toggleDrawArea() }
+        actionsRow.addView(drawRegionButton)
         undoButton = button("↶ UNDO") { undoShape() }
         redoButton = button("↷ REDO") { redoShape() }
         actionsRow.addView(undoButton)
@@ -358,15 +372,18 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         actionsRow.addView(button("ADVANCED • SOON") {
             toast("Face area selection works on generated boxes. Edge/vertex editing is coming later.")
         })
-        drawer.addView(textLabel("FACE TOOLS • CHOOSE YOUR PANEL AREA", 13f, accent))
+        drawer.addView(textLabel("FACE TOOLS • DRAW ON THE MODEL", 13f, accent))
+        drawer.addView(textLabel("DRAW AREA: touch one point and drag to size. Bend the four cyan mid-edge handles, then PULL.",12f,muted))
         faceSelectionText = textLabel("Face selection is off", 12f, muted)
         drawer.addView(faceSelectionText)
         val areaShapeRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         drawer.addView(areaShapeRow)
         regionRectButton=button("▭ RECTANGLE") { regionKind=0; updateAreaButtons(); faceOverlay.invalidate() }
         regionOvalButton=button("◯ OVAL") { regionKind=1; updateAreaButtons(); faceOverlay.invalidate() }
+        regionCurveButton=button("〰 CURVE") { regionKind=2; updateAreaButtons(); faceOverlay.invalidate() }
         areaShapeRow.addView(regionRectButton,LinearLayout.LayoutParams(0,dp(52),1f))
         areaShapeRow.addView(regionOvalButton,LinearLayout.LayoutParams(0,dp(52),1f))
+        areaShapeRow.addView(regionCurveButton,LinearLayout.LayoutParams(0,dp(52),1f))
         regionWidthSlider=profileSlider(drawer,"AREA WIDTH",15,85,55) { "$it% of face" }
         regionHeightSlider=profileSlider(drawer,"AREA HEIGHT",15,85,55) { "$it% of face" }
         regionOffsetUSlider=profileSlider(drawer,"LEFT / RIGHT POSITION",-80,80,0) { "$it%" }
@@ -465,7 +482,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             return
         }
         directShapeMode = !directShapeMode
-        if (directShapeMode) { faceMode = false; selectedFace = null }
+        if (directShapeMode) {
+            faceMode = false; drawAreaMode = false; selectedFace = null
+            drawPreview=null; edgeDragIndex=-1
+        }
         syncShapeUi()
         status.text = if (directShapeMode)
             "EDIT TOP: drag LEAN / WIDTH / LENGTH handles • lift finger to apply"
@@ -479,18 +499,42 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
         faceMode = !faceMode
         if (faceMode) directShapeMode = false
+        else drawAreaMode=false
+        drawPreview=null
+        edgeDragIndex=-1
         selectedFace = null
         syncShapeUi()
         status.text = if (faceMode) "FACE MODE: tap a face, then drag the white circle or enter metres"
                       else "Face mode off • orbit normally"
     }
 
+    private fun toggleDrawArea() {
+        if(currentShape==null) {
+            toast("Draw a region on a generated box, not an imported GLB.")
+            return
+        }
+        faceMode=true
+        directShapeMode=false
+        drawAreaMode=!drawAreaMode
+        drawStartUv=null
+        drawPreview=null
+        drawingFace=-1
+        edgeDragIndex=-1
+        selectedFace=null
+        syncShapeUi()
+        status.text=if(drawAreaMode) "DRAW AREA: touch a face and drag out your selection"
+                    else "FACE MODE: tap a face or draw an area"
+        if(drawAreaMode) setDrawerVisible(false)
+    }
+
     private fun setDrawerVisible(opened: Boolean) {
         drawer.visibility = if (opened) View.VISIBLE else View.GONE
         drawerScroll.visibility = if (opened) View.VISIBLE else View.GONE
         drawerToggle.text = if (opened) "▼ HIDE TOOLS" else "▲ OPEN TOOLS"
-        status.text = if (faceMode)
-            "FACE MODE: tap surface • drag selected circle • or enter metres"
+        status.text = if(drawAreaMode)
+            "DRAW AREA: drag from first corner to opposite corner"
+        else if (faceMode)
+            "FACE MODE: tap surface • bend curved edges • or pull"
         else if (directShapeMode)
             "EDIT TOP: drag colored handles • other gestures still orbit"
         else if (opened) "Right joystick: orbit • pinch: zoom • drag: rotate"
@@ -518,15 +562,16 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun renderShape(shape: Shape): Boolean {
-        val parts=FloatArray(36)
+        val parts=FloatArray(60)
         shape.areas.forEachIndexed { face,f ->
-            val p=face*6
+            val p=face*10
             parts[p]=f.kind.toFloat()
             parts[p+1]=f.width
             parts[p+2]=f.height
             parts[p+3]=f.offsetU
             parts[p+4]=f.offsetV
             parts[p+5]=f.depth
+            for(edge in 0..3) parts[p+6+edge]=f.curves[edge]
         }
         val mesh=NativeGeometry.generateMultiFaceBox(
             shape.width,shape.height,shape.length,
@@ -592,11 +637,12 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun fromNative(): Shape? {
         val values = NativeProject.currentShape() ?: return null
-        if (values.size != 42) return null
+        if (values.size != 66) return null
         val areas=List(6) { face ->
-            val p=6+face*6
+            val p=6+face*10
             FaceArea(values[p].toInt(),values[p+1],values[p+2],
-                     values[p+3],values[p+4],values[p+5])
+                     values[p+3],values[p+4],values[p+5],
+                     List(4) { edge->values[p+6+edge] })
         }
         return Shape(values[0], values[1], values[2],
             values[3], values[4], values[5], areas)
@@ -665,7 +711,14 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         topWidthSlider.isEnabled = shape != null
         topLengthSlider.isEnabled = shape != null
         shiftSlider.isEnabled = shape != null
-        if (shape == null) { directShapeMode = false; faceMode = false; selectedFace = null }
+        if (shape == null) {
+            directShapeMode=false;faceMode=false;drawAreaMode=false
+            selectedFace=null;drawPreview=null;edgeDragIndex=-1
+        }
+        if (::drawRegionButton.isInitialized) {
+            drawRegionButton.isEnabled=shape!=null
+            drawRegionButton.text=if(drawAreaMode) "● DRAWING AREA" else "▱ DRAW AREA"
+        }
         if (::faceButton.isInitialized) {
             faceButton.isEnabled = shape != null
             faceButton.text = if (faceMode) "● FACE MODE ON" else "▣ SELECT FACE"
@@ -686,6 +739,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if (::extrudeApplyButton.isInitialized) extrudeApplyButton.isEnabled = faceMode && selectedFace != null
         if (::regionRectButton.isInitialized) regionRectButton.isEnabled=faceMode && selectedFace!=null
         if (::regionOvalButton.isInitialized) regionOvalButton.isEnabled=faceMode && selectedFace!=null
+        if (::regionCurveButton.isInitialized) regionCurveButton.isEnabled=faceMode && selectedFace!=null
         if (::regionWidthSlider.isInitialized) {
             for(slider in arrayOf(regionWidthSlider,regionHeightSlider,regionOffsetUSlider,regionOffsetVSlider))
                 slider.isEnabled=faceMode && selectedFace!=null
@@ -1071,6 +1125,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if(!::regionRectButton.isInitialized) return
         regionRectButton.text=if(regionKind==0) "● RECTANGLE" else "▭ RECTANGLE"
         regionOvalButton.text=if(regionKind==1) "● OVAL" else "◯ OVAL"
+        regionCurveButton.text=if(regionKind==2) "● CURVE" else "〰 CURVE"
     }
 
     private fun syncRegionUi(face:Int) {
@@ -1094,7 +1149,11 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             (regionHeightSlider.progress+15)/100f,
             (regionOffsetUSlider.progress-80)/100f,
             (regionOffsetVSlider.progress-80)/100f,
-            depth)
+            depth,
+            if(regionKind==2) {
+                edgeLiveArea?.curves ?: selectedFace?.let { currentShape?.areas?.get(it) }
+                    ?.takeIf { it.kind==2 }?.curves ?: List(4) { 0f }
+            } else List(4) { 0f })
 
     private fun applyFaceInput() {
         val id=selectedFace ?: run { toast("Tap a box face before extruding."); return }
@@ -1140,7 +1199,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         var committed=false
         try {
             NativeProject.setFaceRegion(face,area.kind,area.width,area.height,
-                area.offsetU,area.offsetV,area.depth)
+                area.offsetU,area.offsetV,area.depth,area.curves.toFloatArray())
             committed=true
             if(!renderShape(next)) {
                 NativeProject.undo()
@@ -1154,7 +1213,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             status.text=faceName(face) +
                 if(area.kind<0) ": edit removed; other faces preserved"
                 else ": " + String.format(java.util.Locale.US,"%+.2f m",area.depth) +
-                     " • " + (if(area.kind==0)"rectangle" else "oval") +
+                     " • " + (when(area.kind){0->"rectangle";1->"oval";else->"curved"}) +
                      " • other faces preserved"
         } catch(error:Exception) {
             if(committed) {
