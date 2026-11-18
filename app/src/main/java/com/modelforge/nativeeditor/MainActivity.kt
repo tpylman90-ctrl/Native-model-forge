@@ -1055,7 +1055,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun activeFaceVertices(f: FaceArea): Int =
         if(f.kind<0 || kotlin.math.abs(f.depth)<1e-6f) 6
-        else if(f.kind==0) 54 else 390
+        else if(f.kind==0) 54 else if(f.kind==1) 390 else 396
 
     private fun faceStart(face:Int, shape:Shape):Int {
         var offset=0
@@ -1073,7 +1073,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         else {
             val n=if(f.kind==0) 4 else 32
             val capStart=start+if(n==4) 48 else 300
-            IntArray(n) { i -> when(i) {
+            if(f.kind==2) IntArray(32) { i -> capStart+i*3+1 }
+            else IntArray(n) { i -> when(i) {
                 0 -> capStart
                 1 -> capStart+1
                 else -> capStart+(i-2)*3+2
