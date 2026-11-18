@@ -50,7 +50,7 @@ Java_com_modelforge_nativeeditor_NativeProject_reshape(
 extern "C" JNIEXPORT void JNICALL
 Java_com_modelforge_nativeeditor_NativeProject_setFaceRegion(
     JNIEnv* env,jobject,jint faceIndex,jint kind,jfloat width,jfloat height,
-    jfloat offsetU,jfloat offsetV,jfloat depth) {
+    jfloat offsetU,jfloat offsetV,jfloat depth,jfloatArray curves) {
     std::lock_guard<std::mutex> guard(projectMutex);
     try {
         forge::FaceRegion feature;
@@ -58,6 +58,12 @@ Java_com_modelforge_nativeeditor_NativeProject_setFaceRegion(
         feature.width=width;feature.height=height;
         feature.offsetU=offsetU;feature.offsetV=offsetV;
         feature.depthMetres=depth;
+        if(!curves || env->GetArrayLength(curves)!=4)
+            throw std::invalid_argument("face must have four edge curves");
+        jfloat parts[4];
+        env->GetFloatArrayRegion(curves,0,4,parts);
+        if(env->ExceptionCheck()) return;
+        for(int i=0;i<4;++i) feature.curves[static_cast<std::size_t>(i)]=parts[i];
         document.setFaceRegion(boxId(),faceIndex,feature,document.revision());
     } catch(const std::exception& error) { javaError(env,error); }
 }
@@ -89,7 +95,7 @@ Java_com_modelforge_nativeeditor_NativeProject_currentShape(JNIEnv* env,jobject)
        document.objects()[0].kind!=forge::GeometryKind::PolygonMesh)
         return nullptr;
     const auto& obj=document.objects()[0];
-    jfloat values[42] = {
+    jfloat values[66] = {
         static_cast<jfloat>(obj.sizeMetres[0]),
         static_cast<jfloat>(obj.sizeMetres[1]),
         static_cast<jfloat>(obj.sizeMetres[2]),
@@ -99,16 +105,18 @@ Java_com_modelforge_nativeeditor_NativeProject_currentShape(JNIEnv* env,jobject)
     };
     for(int i=0;i<6;++i) {
         const auto& f=obj.faceRegions[static_cast<std::size_t>(i)];
-        const int start=6+i*6;
+        const int start=6+i*10;
         values[start+0]=static_cast<jfloat>(f.kind);
         values[start+1]=static_cast<jfloat>(f.width);
         values[start+2]=static_cast<jfloat>(f.height);
         values[start+3]=static_cast<jfloat>(f.offsetU);
         values[start+4]=static_cast<jfloat>(f.offsetV);
         values[start+5]=static_cast<jfloat>(f.depthMetres);
+        for(int e=0;e<4;++e)
+            values[start+6+e]=static_cast<jfloat>(f.curves[static_cast<std::size_t>(e)]);
     }
-    jfloatArray arr=env->NewFloatArray(42);
-    if(arr) env->SetFloatArrayRegion(arr,0,42,values);
+    jfloatArray arr=env->NewFloatArray(66);
+    if(arr) env->SetFloatArrayRegion(arr,0,66,values);
     return arr;
 }
 extern "C" JNIEXPORT jstring JNICALL
