@@ -92,6 +92,12 @@ void triangle(std::vector<Vertex>& out,Point3 a,Point3 b,Point3 c) {
         out.push_back({p[0],p[1],p[2],n[0]/len,n[1]/len,n[2]/len});
 }
 }
+bool decodeFaceKind(float raw,int& kind) noexcept {
+    if(!std::isfinite(raw) || raw!=std::trunc(raw) || raw<-1.f || raw>2.f)
+        return false;
+    kind=static_cast<int>(raw);
+    return true;
+}
 void validateFaceFeature(const FaceFeature& f,float minDimension) {
     if(f.kind < -1 || f.kind>2 ||
        !std::isfinite(f.width)||!std::isfinite(f.height)||
