@@ -946,9 +946,13 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         fun at(vertex: Int): ScreenPoint? {
             val i=vertex*6
             if(i<0 || i+2>=packed.size) return null
-            val x=(packed[i].toDouble()-center[0])*scale
-            val y=(packed[i+1].toDouble()-center[1])*scale
-            val z=(packed[i+2].toDouble()-center[2])*scale
+            return atWorld(packed[i],packed[i+1],packed[i+2])
+        }
+
+        fun atWorld(wx:Float,wy:Float,wz:Float):ScreenPoint? {
+            val x=(wx.toDouble()-center[0])*scale
+            val y=(wy.toDouble()-center[1])*scale
+            val z=(wz.toDouble()-center[2])*scale
             fun mul(m: DoubleArray, a: Double, b: Double, c: Double, d: Double): DoubleArray =
                 DoubleArray(4) { j ->
                     m[j]*a + m[j+4]*b + m[j+8]*c + m[j+12]*d
@@ -1219,11 +1223,61 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             val shape=currentShape ?: return null
             val id=selectedFace ?: return null
             val packed=currentGeneratedMesh ?: return null
-            if(!::viewer.isInitialized) return null
+            val base=baseGeneratedMesh ?: return null
+            if(!::viewer.isInitialized || !::regionWidthSlider.isInitialized) return null
             val mapper=MeshProjector(packed)
             if(!mapper.visibleFace(id,shape)) return null
-            val corners=faceQuadIndices(id,shape,packed.size/6) ?: return null
-            return corners.map { mapper.at(it) ?: return null }
+            val start=id*36
+            if(start+35>=base.size) return null
+            val ids=intArrayOf(0,1,2,5)
+            val outer=ids.map { vi ->
+                FloatArray(3) { axis -> base[start+vi*6+axis] }
+            }
+            val feature=areaFromControls(0f)
+            val cu=0.5f+feature.offsetU*(1-feature.width)*0.5f
+            val cv=0.5f+feature.offsetV*(1-feature.height)*0.5f
+            val depth=shape.areas[id].depth
+            val nx=base[start+3]
+            val ny=base[start+4]
+            val nz=base[start+5]
+            fun facePoint(u:Float,v:Float):ScreenPoint? {
+                val wt=floatArrayOf((1-u)*(1-v),u*(1-v),u*v,(1-u)*v)
+                var x=0f;var y=0f;var z=0f
+                for(k in 0..3) {
+                    x+=outer[k][0]*wt[k]
+                    y+=outer[k][1]*wt[k]
+                    z+=outer[k][2]*wt[k]
+                }
+                return mapper.atWorld(x+nx*depth,y+ny*depth,z+nz*depth)
+            }
+            if(regionKind==0) {
+                return listOf(
+                    facePoint(cu-feature.width*0.5f,cv-feature.height*0.5f),
+                    facePoint(cu+feature.width*0.5f,cv-feature.height*0.5f),
+                    facePoint(cu+feature.width*0.5f,cv+feature.height*0.5f),
+                    facePoint(cu-feature.width*0.5f,cv+feature.height*0.5f)
+                ).map { it ?: return null }
+            }
+            val tau=2.0*Math.PI
+            val cornerUv=arrayOf(
+                floatArrayOf(0f,0f),floatArrayOf(1f,0f),
+                floatArrayOf(1f,1f),floatArrayOf(0f,1f))
+            val angles=DoubleArray(5)
+            for(k in 0..3) {
+                var theta=kotlin.math.atan2((cornerUv[k][1]-cv).toDouble(),
+                                            (cornerUv[k][0]-cu).toDouble())
+                if(k>0) while(theta<=angles[k-1]) theta+=tau
+                angles[k]=theta
+            }
+            angles[4]=angles[0]+tau
+            val result=ArrayList<ScreenPoint>(32)
+            for(side in 0..3) for(step in 0 until 8) {
+                val angle=angles[side]+(angles[side+1]-angles[side])*step/8.0
+                val u=cu+feature.width*0.5f*kotlin.math.cos(angle).toFloat()
+                val v=cv+feature.height*0.5f*kotlin.math.sin(angle).toFloat()
+                result.add(facePoint(u,v) ?: return null)
+            }
+            return result
         }
         private fun center(): PointF? {
             val p=selectedPoints() ?: return null
@@ -1240,7 +1294,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             val p=selectedPoints() ?: return
             val path=Path().apply {
                 moveTo(p[0].x,p[0].y)
-                for(i in 1..3) lineTo(p[i].x,p[i].y)
+                for(i in 1 until p.size) lineTo(p[i].x,p[i].y)
                 close()
             }
             paint.style=Paint.Style.FILL
