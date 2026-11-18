@@ -1307,7 +1307,37 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             MotionEvent.ACTION_DOWN -> {
                 faceTouchStartX=event.x
                 faceTouchStartY=event.y
+                if(drawAreaMode) {
+                    val face=pickFace(event.x,event.y) ?: return false
+                    val uv=screenFaceUv(face,event.x,event.y) ?: return false
+                    drawingFace=face
+                    selectedFace=face
+                    drawStartUv=uv
+                    drawPreview=drawnArea(uv,uv)
+                    regionKind=2
+                    updateAreaButtons()
+                    syncShapeUi()
+                    faceOverlay.invalidate()
+                    status.text="DRAW AREA: drag to opposite corner"
+                    return true
+                }
                 val existing=selectedFace
+                if(existing!=null) {
+                    val edge=faceOverlay.hitCurveEdge(event.x,event.y)
+                    if(edge>=0) {
+                        val uv=screenFaceUv(existing,event.x,event.y) ?: return false
+                        edgeDragIndex=edge
+                        edgeStartUv=uv
+                        val shape=currentShape ?: return false
+                        val previous=shape.areas[existing]
+                        edgeStartArea=areaFromControls(if(previous.kind>=0) previous.depth else 0f)
+                            .copy(kind=2)
+                        edgeLiveArea=edgeStartArea
+                        faceOverlay.invalidate()
+                        status.text="BEND EDGE " + (edge+1) + ": drag cyan point"
+                        return true
+                    }
+                }
                 faceDragHandle=existing!=null && faceOverlay.hitPull(event.x,event.y)
                 if(faceDragHandle) {
                     val shape=currentShape ?: return false
@@ -1318,6 +1348,30 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 return false
             }
             MotionEvent.ACTION_MOVE -> {
+                if(drawAreaMode && drawingFace>=0) {
+                    val startUv=drawStartUv ?: return true
+                    val endUv=screenFaceUv(drawingFace,event.x,event.y) ?: return true
+                    drawPreview=drawnArea(startUv,endUv)
+                    faceOverlay.invalidate()
+                    val preview=drawPreview ?: return true
+                    status.text=faceName(drawingFace)+": " +
+                        (preview.width*100).toInt() + "% × " +
+                        (preview.height*100).toInt() + "% • release to keep"
+                    return true
+                }
+                if(edgeDragIndex>=0) {
+                    val face=selectedFace ?: return true
+                    val beginUv=edgeStartUv ?: return true
+                    val uv=screenFaceUv(face,event.x,event.y) ?: return true
+                    val base=edgeStartArea ?: return true
+                    val movement=FaceUv(uv.u-beginUv.u,uv.v-beginUv.v)
+                    edgeLiveArea=bendArea(base,edgeDragIndex,movement)
+                    faceOverlay.invalidate()
+                    status.text="EDGE " + (edgeDragIndex+1) + ": bend " +
+                        String.format(java.util.Locale.US,"%+.2f",
+                            edgeLiveArea?.curves?.get(edgeDragIndex) ?: 0f)
+                    return true
+                }
                 if(!faceDragHandle) return false
                 val shape=currentShape ?: return true
                 val dy=faceTouchStartY-event.y
@@ -1330,32 +1384,80 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 return true
             }
             MotionEvent.ACTION_UP -> {
+                if(drawAreaMode && drawingFace>=0) {
+                    val face=drawingFace
+                    val startUv=drawStartUv
+                    val endUv=screenFaceUv(face,event.x,event.y)
+                    val dx=event.x-faceTouchStartX
+                    val dy=event.y-faceTouchStartY
+                    val region=if(startUv!=null && endUv!=null)
+                        drawnArea(startUv,endUv) else drawPreview
+                    drawAreaMode=false
+                    drawingFace=-1
+                    drawStartUv=null
+                    drawPreview=null
+                    edgeLiveArea=null
+                    if(region!=null && dx*dx+dy*dy>dp(25)*dp(25)) {
+                        selectedFace=face
+                        regionKind=2
+                        commitRegion(face,region.copy(kind=2,depth=0f))
+                        status.text="Area drawn • drag cyan edges to curve • PULL to shape"
+                    } else {
+                        status.text="Area too small • touch and drag farther to size"
+                    }
+                    syncShapeUi()
+                    faceOverlay.invalidate()
+                    return true
+                }
+                if(edgeDragIndex>=0) {
+                    val face=selectedFace
+                    val target=edgeLiveArea
+                    edgeDragIndex=-1
+                    edgeStartUv=null
+                    edgeStartArea=null
+                    edgeLiveArea=null
+                    if(face!=null && target!=null) {
+                        regionKind=2
+                        commitRegion(face,target)
+                    }
+                    faceOverlay.invalidate()
+                    return true
+                }
                 if(faceDragHandle) {
                     faceDragHandle=false
-                    val id=selectedFace
-                    if(id!=null) applyFaceExtrusion(id,faceDragPreview)
+                    selectedFace?.let { applyFaceExtrusion(it,faceDragPreview) }
                     return true
                 }
                 val dx=event.x-faceTouchStartX
                 val dy=event.y-faceTouchStartY
                 if(event.pointerCount==1 && dx*dx+dy*dy<=dp(14)*dp(14)) {
                     selectedFace=pickFace(event.x,event.y)
+                    drawPreview=null
+                    edgeLiveArea=null
                     val face=selectedFace
                     if(face!=null) {
-                        val shape=currentShape
-                        if(shape!=null) syncRegionUi(face)
-                        status.text=faceName(face) + " selected • choose area shape/size, then pull"
+                        syncRegionUi(face)
+                        status.text=faceName(face)+
+                            " selected • DRAW AREA or bend cyan edge handles"
                     } else status.text="No face found • tap a solid visible surface"
                     syncShapeUi()
                 }
-                return false // Forward UP to Filament to release camera gestures
+                return false // Pass camera release through unchanged.
             }
             MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> {
-                val captured=faceDragHandle
+                val captured=(drawingFace>=0 || edgeDragIndex>=0 || faceDragHandle)
+                drawingFace=-1
+                drawStartUv=null
+                drawPreview=null
+                edgeDragIndex=-1
+                edgeStartUv=null
+                edgeStartArea=null
+                edgeLiveArea=null
                 faceDragHandle=false
+                if(captured) faceOverlay.invalidate()
                 return captured
             }
-            else -> return faceDragHandle
+            else -> return drawingFace>=0 || edgeDragIndex>=0 || faceDragHandle
         }
     }
 
