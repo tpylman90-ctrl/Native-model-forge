@@ -39,9 +39,9 @@ void Document::validate(const ModelObject& obj) {
                !std::isfinite(f.width)||!std::isfinite(f.height)||
                !std::isfinite(f.offsetU)||!std::isfinite(f.offsetV)||
                !std::isfinite(f.depthMetres) ||
-               f.width<0.15 || f.width>0.85 ||
-               f.height<0.15 || f.height>0.85 ||
-               std::abs(f.offsetU)>0.8 || std::abs(f.offsetV)>0.8 ||
+               f.width<0.149999 || f.width>0.8500001 ||
+               f.height<0.149999 || f.height>0.8500001 ||
+               std::abs(f.offsetU)>0.8000001 || std::abs(f.offsetV)>0.8000001 ||
                f.depthMetres < -0.4*minDim || f.depthMetres>2.0*minDim ||
                (f.kind==-1 && f.depthMetres!=0.0) ||
                (obj.kind==GeometryKind::CadBrep && f.kind!=-1),
