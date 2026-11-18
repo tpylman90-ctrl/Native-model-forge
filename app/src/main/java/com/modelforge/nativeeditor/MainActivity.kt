@@ -1178,7 +1178,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 faceDragHandle=existing!=null && faceOverlay.hitPull(event.x,event.y)
                 if(faceDragHandle) {
                     val shape=currentShape ?: return false
-                    faceDragBase=shape.areas[existing].depth
+                    faceDragBase=shape.areas[existing ?: return false].depth
                     faceDragPreview=faceDragBase
                     return true
                 }
