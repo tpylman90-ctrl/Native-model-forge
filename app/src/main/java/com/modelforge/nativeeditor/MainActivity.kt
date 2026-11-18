@@ -1478,10 +1478,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             val outer=ids.map { vi ->
                 FloatArray(3) { axis -> base[start+vi*6+axis] }
             }
-            val feature=areaFromControls(0f)
+            val feature=drawPreview ?: edgeLiveArea ?: areaFromControls(0f)
             val cu=0.5f+feature.offsetU*(1-feature.width)*0.5f
             val cv=0.5f+feature.offsetV*(1-feature.height)*0.5f
-            val depth=shape.areas[id].depth
+            val depth=if(drawPreview!=null) 0f else shape.areas[id].depth
             val nx=base[start+3]
             val ny=base[start+4]
             val nz=base[start+5]
@@ -1495,13 +1495,39 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 }
                 return mapper.atWorld(x+nx*depth,y+ny*depth,z+nz*depth)
             }
-            if(regionKind==0) {
+            if(feature.kind==0) {
                 return listOf(
                     facePoint(cu-feature.width*0.5f,cv-feature.height*0.5f),
                     facePoint(cu+feature.width*0.5f,cv-feature.height*0.5f),
                     facePoint(cu+feature.width*0.5f,cv+feature.height*0.5f),
                     facePoint(cu-feature.width*0.5f,cv+feature.height*0.5f)
                 ).map { it ?: return null }
+            }
+            if(feature.kind==2) {
+                val cornersUv=arrayOf(
+                    FaceUv(cu-feature.width*0.5f,cv-feature.height*0.5f),
+                    FaceUv(cu+feature.width*0.5f,cv-feature.height*0.5f),
+                    FaceUv(cu+feature.width*0.5f,cv+feature.height*0.5f),
+                    FaceUv(cu-feature.width*0.5f,cv+feature.height*0.5f)
+                )
+                val result=ArrayList<ScreenPoint>(32)
+                for(side in 0..3) {
+                    val a=cornersUv[side]
+                    val b=cornersUv[(side+1)%4]
+                    val inwardU=when(side){1->-1f;3->1f;else->0f}
+                    val inwardV=when(side){0->1f;2->-1f;else->0f}
+                    val amount=2f*feature.curves[side]*minOf(feature.width,feature.height)
+                    val ctrlU=(a.u+b.u)*0.5f+inwardU*amount
+                    val ctrlV=(a.v+b.v)*0.5f+inwardV*amount
+                    for(step in 0 until 8) {
+                        val t=step/8f
+                        val one=1f-t
+                        val u=one*one*a.u+2f*one*t*ctrlU+t*t*b.u
+                        val v=one*one*a.v+2f*one*t*ctrlV+t*t*b.v
+                        result.add(facePoint(u,v) ?: return null)
+                    }
+                }
+                return result
             }
             val tau=2.0*Math.PI
             val cornerUv=arrayOf(
@@ -1529,6 +1555,24 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             return PointF(p.map { it.x }.average().toFloat(),
                 p.map { it.y }.average().toFloat())
         }
+        fun hitCurveEdge(x:Float,y:Float):Int {
+            if(drawAreaMode || regionKind!=2) return -1
+            val outline=selectedPoints() ?: return -1
+            if(outline.size!=32) return -1
+            var best=-1
+            var distance=dp(30).toFloat()*dp(30)
+            for(side in 0..3) {
+                val midpoint=outline[side*8+4]
+                val dx=midpoint.x-x
+                val dy=midpoint.y-y
+                val square=dx*dx+dy*dy
+                if(square<distance) {
+                    distance=square
+                    best=side
+                }
+            }
+            return best
+        }
         fun hitPull(x: Float,y: Float): Boolean {
             val p=center() ?: return false
             val dx=x-p.x
@@ -1549,6 +1593,24 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             paint.strokeWidth=dp(3).toFloat()
             paint.color=Color.rgb(255,209,91)
             canvas.drawPath(path,paint)
+            if(drawAreaMode) {
+                paint.style=Paint.Style.FILL
+                paint.color=Color.rgb(255,210,96)
+                for(index in listOf(0,p.size/4,p.size/2,p.size*3/4)) {
+                    canvas.drawCircle(p[index].x,p[index].y,dp(7).toFloat(),paint)
+                }
+                return
+            }
+            if(regionKind==2 && p.size==32) {
+                paint.style=Paint.Style.FILL
+                for(side in 0..3) {
+                    val midpoint=p[side*8+4]
+                    paint.color=Color.rgb(22,52,66)
+                    canvas.drawCircle(midpoint.x,midpoint.y,dp(15).toFloat(),paint)
+                    paint.color=Color.rgb(54,212,188)
+                    canvas.drawCircle(midpoint.x,midpoint.y,dp(10).toFloat(),paint)
+                }
+            }
             val x=p.map { it.x }.average().toFloat()
             val y=p.map { it.y }.average().toFloat()
             paint.style=Paint.Style.FILL
