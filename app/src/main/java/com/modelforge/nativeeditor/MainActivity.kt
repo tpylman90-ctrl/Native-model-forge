@@ -373,6 +373,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             toast("Face area selection works on generated boxes. Edge/vertex editing is coming later.")
         })
         drawer.addView(textLabel("FACE TOOLS • DRAW ON THE MODEL", 13f, accent))
+        drawer.addView(button("✎ START DRAWING ON FACE") { if(!drawAreaMode) toggleDrawArea()
+            else toast("Already drawing. Drag across a visible box face.") })
         drawer.addView(textLabel("DRAW AREA: touch one point and drag to size. Bend the four cyan mid-edge handles, then PULL.",12f,muted))
         faceSelectionText = textLabel("Face selection is off", 12f, muted)
         drawer.addView(faceSelectionText)
@@ -1114,6 +1116,78 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             }
         }
         return result
+    }
+
+    /** Face-local coordinates are derived from the projected original face
+     * corners. This deliberately uses the same camera as the selection mesh,
+     * so a finger drag maps to the face instead of the phone screen axes. */
+    private fun screenFaceUv(face:Int,x:Float,y:Float):FaceUv? {
+        val base=baseGeneratedMesh ?: return null
+        val packed=currentGeneratedMesh ?: return null
+        if(face !in 0..5 || !::viewer.isInitialized) return null
+        val projector=MeshProjector(packed)
+        val offset=face*36
+        val corners=intArrayOf(0,1,2,5).map { corner ->
+            val i=offset+corner*6
+            projector.atWorld(base[i],base[i+1],base[i+2]) ?: return null
+        }
+        fun interpolate(a:Int,b:Int,c:Int):Triple<Float,Float,Float>? {
+            val pa=corners[a];val pb=corners[b];val pc=corners[c]
+            val d=(pb.y-pc.y)*(pa.x-pc.x)+(pc.x-pb.x)*(pa.y-pc.y)
+            if(kotlin.math.abs(d)<1e-4f) return null
+            val alpha=((pb.y-pc.y)*(x-pc.x)+(pc.x-pb.x)*(y-pc.y))/d
+            val beta=((pc.y-pa.y)*(x-pc.x)+(pa.x-pc.x)*(y-pc.y))/d
+            return Triple(alpha,beta,1f-alpha-beta)
+        }
+        val t0=interpolate(0,1,2) ?: return null
+        val t1=interpolate(0,2,3) ?: return null
+        val inside0=minOf(t0.first,t0.second,t0.third)
+        val inside1=minOf(t1.first,t1.second,t1.third)
+        return if(inside0>=inside1) {
+            FaceUv((t0.second+t0.third).coerceIn(-0.5f,1.5f),
+                   t0.third.coerceIn(-0.5f,1.5f))
+        } else {
+            FaceUv(t1.second.coerceIn(-0.5f,1.5f),
+                  (t1.second+t1.third).coerceIn(-0.5f,1.5f))
+        }
+    }
+
+    private fun drawnArea(start:FaceUv,end:FaceUv):FaceArea {
+        val u0=start.u.coerceIn(0.06f,0.94f)
+        val u1=end.u.coerceIn(0.06f,0.94f)
+        val v0=start.v.coerceIn(0.06f,0.94f)
+        val v1=end.v.coerceIn(0.06f,0.94f)
+        val width=kotlin.math.abs(u1-u0).coerceIn(0.15f,0.85f)
+        val height=kotlin.math.abs(v1-v0).coerceIn(0.15f,0.85f)
+        val centerU=((u0+u1)*0.5f).coerceIn(0.5f-0.4f*(1f-width),0.5f+0.4f*(1f-width))
+        val centerV=((v0+v1)*0.5f).coerceIn(0.5f-0.4f*(1f-height),0.5f+0.4f*(1f-height))
+        val offsetU=((centerU-0.5f)*2f/(1f-width)).coerceIn(-0.8f,0.8f)
+        val offsetV=((centerV-0.5f)*2f/(1f-height)).coerceIn(-0.8f,0.8f)
+        return FaceArea(kind=2,width=width,height=height,offsetU=offsetU,
+            offsetV=offsetV,depth=0f)
+    }
+
+    private fun bendArea(area:FaceArea,edge:Int,delta:FaceUv):FaceArea {
+        if(edge !in 0..3) return area
+        val shortSide=minOf(area.width,area.height)
+        val inward=when(edge) {
+            0 -> delta.v
+            1 -> -delta.u
+            2 -> -delta.v
+            else -> delta.u
+        }
+        val centerU=0.5f+area.offsetU*(1f-area.width)*0.5f
+        val centerV=0.5f+area.offsetV*(1f-area.height)*0.5f
+        val margin=when(edge) {
+            0 -> centerV-area.height*0.5f
+            1 -> 1f-(centerU+area.width*0.5f)
+            2 -> 1f-(centerV+area.height*0.5f)
+            else -> centerU-area.width*0.5f
+        }
+        val minCurve=-minOf(0.2f,0.75f*margin/shortSide)
+        val curves=area.curves.toMutableList()
+        curves[edge]=(area.curves[edge]+inward/shortSide).coerceIn(minCurve,0.2f)
+        return area.copy(kind=2,curves=curves)
     }
 
     private fun clampExtrusion(value: Float, shape: Shape): Float {
