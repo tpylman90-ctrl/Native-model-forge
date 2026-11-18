@@ -50,6 +50,12 @@ Tap **EDIT ON MODEL** in the tools drawer while a generated box is open. Three c
 
 This is **not** imported GLB editing or generic mesh face/edge picking. Normal orbit/zoom gestures remain available away from handles. The top handles hide when the top surface is back-facing from the camera. See [milestone 03](docs/FOUNDATION_MILESTONE_03.md).
 
+## v0.5 face selection and extrusion (generated box)
+
+Tap **SELECT FACE**, then tap a visible surface on the generated box. The selected face is outlined and shaded, with a **PULL** handle at its centre. Drag that handle vertically or enter an exact signed depth (metres) under **FACE TOOLS**, then press **EXTRUDE m**. A positive value creates an inset raised panel and a negative one creates an inset recess. The generated mesh has actual new cap, wall and border triangles and exports as a real GLB. There is one parametric extrusion feature per box in this first slice; selecting and extruding another face replaces the previous extrusion rather than stacking arbitrary features.
+
+Undo/Redo works through the native document. `MFORGE_DOC 3` stores the selected extrusion feature and survives app restart; previous v1/v2 generated-box recovery files remain readable. Imported GLBs stay preview-only. Direct top-shaping controls and orbit controls remain separate modes. See [milestone 04](docs/FOUNDATION_MILESTONE_04.md).
+
 ## First real-user gate
 
 A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.
