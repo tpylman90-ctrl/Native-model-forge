@@ -8,12 +8,13 @@ namespace forge {
 // The CAD kind describes canonical B-Rep assets; the OCCT adapter is not shipped.
 enum class GeometryKind : std::uint8_t { PolygonMesh = 1, CadBrep = 2 };
 struct FaceRegion {
-    int kind=-1; // -1 none, 0 rectangle, 1 oval
+    int kind=-1; // -1 none, 0 rectangle, 1 oval, 2 curved rectangle
     double width=0.55;
     double height=0.55;
     double offsetU=0.0;
     double offsetV=0.0;
     double depthMetres=0.0;
+    std::array<double,4> curves{{0.0,0.0,0.0,0.0}}; // bottom right top left
 };
 struct ModelObject {
     std::uint64_t id = 0;
