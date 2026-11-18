@@ -71,23 +71,44 @@ int main() {
     const auto shape=extrudeDoc.insert(GeometryKind::PolygonMesh, "Extruded",
         "generated:profiled_box", {2.,1.,3.},extrudeDoc.revision());
     extrudeDoc.clearHistory();
-    extrudeDoc.setFaceExtrusion(shape,4,0.3,extrudeDoc.revision());
-    assert(extrudeDoc.objects()[0].extrusionFace==4);
-    assert(extrudeDoc.objects()[0].extrusionDepthMetres==0.3);
-    const std::string extruded=extrudeDoc.serialize();
-    assert(extruded.find("MFORGE_DOC 3") == 0);
-    auto restored=forge::Document::parse(extruded);
-    assert(restored.serialize()==extruded);
-    bool badExtrude=false;
-    try {extrudeDoc.setFaceExtrusion(shape,2,-0.8,extrudeDoc.revision());}
-    catch(const std::invalid_argument&) {badExtrude=true;}
-    assert(badExtrude && extrudeDoc.serialize()==extruded);
-    assert(extrudeDoc.undo() && extrudeDoc.objects()[0].extrusionFace==-1);
-    assert(extrudeDoc.redo() && extrudeDoc.objects()[0].extrusionFace==4);
-    extrudeDoc.setFaceExtrusion(shape,4,-0.2,extrudeDoc.revision());
-    assert(extrudeDoc.objects()[0].extrusionDepthMetres==-0.2);
+    forge::FaceRegion top,front;
+    top.kind=0; top.width=0.45; top.height=0.6; top.offsetU=0.4;
+    top.depthMetres=0.3;
+    front.kind=1; front.width=0.55; front.height=0.35;
+    front.offsetV=-0.3;front.depthMetres=-0.2;
+    extrudeDoc.setFaceRegion(shape,4,top,extrudeDoc.revision());
+    extrudeDoc.setFaceRegion(shape,0,front,extrudeDoc.revision());
+    assert(extrudeDoc.objects()[0].faceRegions[4].depthMetres==0.3);
+    assert(extrudeDoc.objects()[0].faceRegions[0].kind==1);
+    const auto saved=extrudeDoc.serialize();
+    assert(saved.find("MFORGE_DOC 4")==0);
+    auto restored=forge::Document::parse(saved);
+    assert(restored.serialize()==saved);
+    assert(restored.objects()[0].faceRegions[0].depthMetres==-0.2);
+    auto bad=front;bad.width=0.99;
+    bool rejectedRegion=false;
+    try { extrudeDoc.setFaceRegion(shape,2,bad,extrudeDoc.revision()); }
+    catch(const std::invalid_argument&) { rejectedRegion=true; }
+    assert(rejectedRegion && extrudeDoc.serialize()==saved);
+    bad=front;bad.width=0.6;bad.depthMetres=-0.9;
+    rejectedRegion=false;
+    try { extrudeDoc.setFaceRegion(shape,2,bad,extrudeDoc.revision()); }
+    catch(const std::invalid_argument&) { rejectedRegion=true; }
+    assert(rejectedRegion && extrudeDoc.serialize()==saved);
+    assert(extrudeDoc.undo() && extrudeDoc.objects()[0].faceRegions[0].kind==-1);
+    assert(extrudeDoc.objects()[0].faceRegions[4].kind==0);
+    assert(extrudeDoc.redo() && extrudeDoc.objects()[0].faceRegions[0].kind==1);
+    forge::FaceRegion removed;
+    extrudeDoc.setFaceRegion(shape,0,removed,extrudeDoc.revision());
+    assert(extrudeDoc.objects()[0].faceRegions[0].kind==-1);
+    assert(extrudeDoc.objects()[0].faceRegions[4].kind==0);
     const auto legacyV2=forge::Document::parse(
         "MFORGE_DOC 2\n1 2 1\n1 1 \"Legacy\" \"generated:profiled_box\" 2 1 3 1 1 0\n");
-    assert(legacyV2.objects()[0].extrusionFace==-1);
+    assert(legacyV2.objects()[0].faceRegions[4].kind==-1);
+    const auto legacyV3=forge::Document::parse(
+        "MFORGE_DOC 3\n1 2 1\n1 1 \"Legacy\" \"generated:profiled_box\" 2 1 3 1 1 0 4 0.25\n");
+    assert(legacyV3.objects()[0].faceRegions[4].kind==0);
+    assert(legacyV3.objects()[0].faceRegions[4].depthMetres==0.25);
+    assert(legacyV3.objects()[0].faceRegions[4].width==0.82);
     std::cout<<"MODEL_FORGE_DOCUMENT: PASS revision guard, stable IDs, hybrid kinds, rollback, save/load, undo/redo\n";
 }
