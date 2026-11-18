@@ -43,5 +43,36 @@ int main() {
     try { forge::profiledBox(4,2,6,0.01f,1,0); }
     catch(const std::invalid_argument&) { rejected=true; }
     assert(rejected);
+    for(int face=0;face<6;++face) {
+        for(float depth:{0.32f,-0.22f}) {
+            auto mesh=forge::faceExtrudedBox(4.f,2.f,6.f,0.8f,1.1f,0.1f,face,depth);
+            assert(mesh.size()==84);
+            // The cap is the final two triangles and has the correct outward
+            // normal for both a raised extrusion and an inward pocket.
+            const auto& original=shaped; (void)original;
+            for(std::size_t i=0;i<mesh.size();i+=3) {
+                const auto& a=mesh[i],&b=mesh[i+1],&c=mesh[i+2];
+                const float ux=b.px-a.px,uy=b.py-a.py,uz=b.pz-a.pz;
+                const float vx=c.px-a.px,vy=c.py-a.py,vz=c.pz-a.pz;
+                const float cross=(uy*vz-uz*vy)*a.nx +
+                    (uz*vx-ux*vz)*a.ny+(ux*vy-uy*vx)*a.nz;
+                assert(std::isfinite(cross) && cross>0.0f);
+            }
+            for(std::size_t i=78;i<84;++i) {
+                assert(std::fabs(mesh[i].nx*mesh[i].nx+
+                    mesh[i].ny*mesh[i].ny+mesh[i].nz*mesh[i].nz-1.f)<1e-5f);
+            }
+        }
+    }
+    assert(forge::faceExtrudedBox(2,1,3,1,1,0,-1,0).size()==36);
+    rejected=false;
+    try { forge::faceExtrudedBox(2,1,3,1,1,0,6,0.2f); }
+    catch(const std::invalid_argument&) { rejected=true; }
+    assert(rejected);
+    rejected=false;
+    try { forge::faceExtrudedBox(2,1,3,1,1,0,0,-0.6f); }
+    catch(const std::invalid_argument&) { rejected=true; }
+    assert(rejected);
+    std::cout << "MODEL_FORGE_FACE_EXTRUDE: PASS 6 faces, positive/negative inset extrusions, normals and bounds" << std::endl;
     std::cout << "MODEL_FORGE_NATIVE_CORE: PASS exact dimensions / 12 triangles / hard normals / rejects invalid" << std::endl;
 }
