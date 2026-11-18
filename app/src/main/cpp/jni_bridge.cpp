@@ -65,14 +65,14 @@ Java_com_modelforge_nativeeditor_NativeGeometry_generateMultiFaceBox(
         jfloat tw,jfloat tl,jfloat shift,jfloatArray values) {
     static_assert(sizeof(forge::Vertex)==6*sizeof(float),"packed vertex layout");
     try {
-        if(!values || env->GetArrayLength(values)!=36)
-            throw std::invalid_argument("face feature array must contain 36 values");
-        jfloat parts[36];
-        env->GetFloatArrayRegion(values,0,36,parts);
+        if(!values || env->GetArrayLength(values)!=60)
+            throw std::invalid_argument("face feature array must contain 60 values");
+        jfloat parts[60];
+        env->GetFloatArrayRegion(values,0,60,parts);
         if(env->ExceptionCheck()) return nullptr;
         forge::FaceFeatures features{};
         for(int i=0;i<6;++i) {
-            const int j=6*i;
+            const int j=10*i;
             const float kind=parts[j];
             if(!std::isfinite(kind) || kind!=std::floor(kind) || kind< -1.f || kind>1.f)
                 throw std::invalid_argument("nonintegral face shape code");
@@ -81,6 +81,8 @@ Java_com_modelforge_nativeeditor_NativeGeometry_generateMultiFaceBox(
             f.width=parts[j+1];f.height=parts[j+2];
             f.offsetU=parts[j+3];f.offsetV=parts[j+4];
             f.depth=parts[j+5];
+            for(int e=0;e<4;++e)
+                f.curves[static_cast<std::size_t>(e)]=parts[j+6+e];
         }
         const auto mesh=forge::multiFaceBox(w,h,l,tw,tl,shift,features);
         jfloatArray result=env->NewFloatArray(static_cast<jsize>(mesh.size()*6));

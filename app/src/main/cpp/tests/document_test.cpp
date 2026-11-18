@@ -81,7 +81,7 @@ int main() {
     assert(extrudeDoc.objects()[0].faceRegions[4].depthMetres==0.3);
     assert(extrudeDoc.objects()[0].faceRegions[0].kind==1);
     const auto saved=extrudeDoc.serialize();
-    assert(saved.find("MFORGE_DOC 4")==0);
+    assert(saved.find("MFORGE_DOC 5")==0);
     auto restored=forge::Document::parse(saved);
     assert(restored.serialize()==saved);
     assert(restored.objects()[0].faceRegions[0].depthMetres==-0.2);
@@ -98,10 +98,25 @@ int main() {
     assert(extrudeDoc.undo() && extrudeDoc.objects()[0].faceRegions[0].kind==-1);
     assert(extrudeDoc.objects()[0].faceRegions[4].kind==0);
     assert(extrudeDoc.redo() && extrudeDoc.objects()[0].faceRegions[0].kind==1);
+    forge::FaceRegion curved=top;
+    curved.kind=2;
+    curved.curves={{0.12,-0.06,0.15,0.0}};
+    extrudeDoc.setFaceRegion(shape,4,curved,extrudeDoc.revision());
+    assert(extrudeDoc.objects()[0].faceRegions[4].kind==2);
+    const auto curvedText=extrudeDoc.serialize();
+    assert(forge::Document::parse(curvedText).objects()[0].faceRegions[4].curves[2]==0.15);
+    assert(extrudeDoc.undo() && extrudeDoc.objects()[0].faceRegions[4].kind==0);
+    assert(extrudeDoc.redo() && extrudeDoc.objects()[0].faceRegions[4].kind==2);
+    auto badCurve=curved;
+    badCurve.curves[0]=0.24;
+    bool blockedCurve=false;
+    try {extrudeDoc.setFaceRegion(shape,3,badCurve,extrudeDoc.revision());}
+    catch(const std::invalid_argument&) {blockedCurve=true;}
+    assert(blockedCurve);
     forge::FaceRegion removed;
     extrudeDoc.setFaceRegion(shape,0,removed,extrudeDoc.revision());
     assert(extrudeDoc.objects()[0].faceRegions[0].kind==-1);
-    assert(extrudeDoc.objects()[0].faceRegions[4].kind==0);
+    assert(extrudeDoc.objects()[0].faceRegions[4].kind==2);
     const auto legacyV2=forge::Document::parse(
         "MFORGE_DOC 2\n1 2 1\n1 1 \"Legacy\" \"generated:profiled_box\" 2 1 3 1 1 0\n");
     assert(legacyV2.objects()[0].faceRegions[4].kind==-1);
@@ -110,5 +125,15 @@ int main() {
     assert(legacyV3.objects()[0].faceRegions[4].kind==0);
     assert(legacyV3.objects()[0].faceRegions[4].depthMetres==0.25);
     assert(legacyV3.objects()[0].faceRegions[4].width==0.82);
+    // A genuine v4 six-value region record migrates without curve fields.
+    const auto v4=forge::Document::parse(R"(MFORGE_DOC 4
+1 2 1
+1 1 "Legacy" "generated:profiled_box" 2 1 3 1 1 0
+ -1 0.55 0.55 0 0 0 -1 0.55 0.55 0 0 0
+ -1 0.55 0.55 0 0 0 -1 0.55 0.55 0 0 0
+ 0 0.45 0.6 0 0 0.25 -1 0.55 0.55 0 0 0
+)");
+    assert(v4.objects()[0].faceRegions[4].kind==0);
+    assert(v4.objects()[0].faceRegions[4].curves[0]==0.0);
     std::cout<<"MODEL_FORGE_DOCUMENT: PASS revision guard, stable IDs, hybrid kinds, rollback, save/load, undo/redo\n";
 }

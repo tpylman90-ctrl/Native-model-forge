@@ -35,7 +35,7 @@ void Document::validate(const ModelObject& obj) {
     const double minDim=std::min(obj.sizeMetres[0],
         std::min(obj.sizeMetres[1],obj.sizeMetres[2]));
     for(const auto& f:obj.faceRegions) {
-        reject(f.kind < -1 || f.kind > 1 ||
+        reject(f.kind < -1 || f.kind > 2 ||
                !std::isfinite(f.width)||!std::isfinite(f.height)||
                !std::isfinite(f.offsetU)||!std::isfinite(f.offsetV)||
                !std::isfinite(f.depthMetres) ||
@@ -46,6 +46,20 @@ void Document::validate(const ModelObject& obj) {
                (f.kind==-1 && f.depthMetres!=0.0) ||
                (obj.kind==GeometryKind::CadBrep && f.kind!=-1),
                "invalid face region, shape or depth");
+        const double cu=0.5+f.offsetU*(1.0-f.width)*0.5;
+        const double cv=0.5+f.offsetV*(1.0-f.height)*0.5;
+        const double side=std::min(f.width,f.height);
+        const double margins[4]={
+            cv-f.height*0.5,1.0-(cu+f.width*0.5),
+            1.0-(cv+f.height*0.5),cu-f.width*0.5
+        };
+        for(int edge=0;edge<4;++edge) {
+            const double bulge=f.curves[static_cast<std::size_t>(edge)];
+            reject(!std::isfinite(bulge) || std::abs(bulge)>0.200001 ||
+                   (bulge<0.0 && -bulge*side > margins[edge]*0.8+1e-6) ||
+                   (f.kind!=2 && std::abs(bulge)>1e-6),
+                   "curved edge leaves its host face");
+        }
     }
 }
 void Document::commit(std::vector<ModelObject> next) {
@@ -143,7 +157,7 @@ bool Document::redo() {
 }
 std::string Document::serialize() const {
     std::ostringstream stream;
-    stream << "MFORGE_DOC 4\n" << revision_ << ' ' << nextId_ << ' ' << objects_.size() << '\n'
+    stream << "MFORGE_DOC 5\n" << revision_ << ' ' << nextId_ << ' ' << objects_.size() << '\n'
            << std::setprecision(17);
     for (const ModelObject& obj : objects_) {
         stream << obj.id << ' ' << static_cast<int>(obj.kind) << ' '
@@ -153,6 +167,7 @@ std::string Document::serialize() const {
         for(const auto& f:obj.faceRegions) {
             stream << ' ' << f.kind << ' ' << f.width << ' ' << f.height
                    << ' ' << f.offsetU << ' ' << f.offsetV << ' ' << f.depthMetres;
+            for(double curve:f.curves) stream << ' ' << curve;
         }
         stream << '\n';
     }
@@ -163,7 +178,7 @@ Document Document::parse(const std::string& data) {
     std::istringstream stream(data);
     std::string magic;
     int version=0;
-    reject(!(stream>>magic>>version) || magic!="MFORGE_DOC" || (version!=1 && version!=2 && version!=3 && version!=4),
+    reject(!(stream>>magic>>version) || magic!="MFORGE_DOC" || (version!=1 && version!=2 && version!=3 && version!=4 && version!=5),
            "unsupported document header");
     Document result;
     std::size_t count=0;
@@ -198,11 +213,16 @@ Document Document::parse(const std::string& data) {
                 f.depthMetres=legacyDepth;
             }
         }
-        if(version==4) {
-            for(auto& f:obj.faceRegions)
+        if(version==4 || version==5) {
+            for(auto& f:obj.faceRegions) {
                 reject(!(stream>>f.kind>>f.width>>f.height>>
                          f.offsetU>>f.offsetV>>f.depthMetres),
                        "missing or corrupt face region");
+                if(version==5) {
+                    for(double& bulge:f.curves)
+                        reject(!(stream>>bulge),"missing or corrupt curved edge");
+                }
+            }
         }
         obj.kind=static_cast<GeometryKind>(rawKind);
         validate(obj);

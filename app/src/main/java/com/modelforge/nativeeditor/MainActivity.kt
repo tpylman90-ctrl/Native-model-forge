@@ -84,6 +84,16 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private var regionKind=0
     private var baseGeneratedMesh: FloatArray? = null
     private var faceMode = false
+    private lateinit var drawRegionButton: Button
+    private lateinit var regionCurveButton: Button
+    private var drawAreaMode = false
+    private var drawStartUv: FaceUv? = null
+    private var drawPreview: FaceArea? = null
+    private var drawingFace = -1
+    private var edgeDragIndex = -1
+    private var edgeStartUv: FaceUv? = null
+    private var edgeStartArea: FaceArea? = null
+    private var edgeLiveArea: FaceArea? = null
     private var selectedFace: Int? = null
     private var currentGeneratedMesh: FloatArray? = null
     private var faceTouchStartX = 0f
@@ -104,8 +114,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         val height: Float = 0.55f,
         val offsetU: Float = 0f,
         val offsetV: Float = 0f,
-        val depth: Float = 0f
+        val depth: Float = 0f,
+        val curves: List<Float> = List(4) { 0f }
     )
+    private data class FaceUv(val u: Float, val v: Float)
     private data class Shape(
         val width: Float, val height: Float, val length: Float,
         val topWidth: Float = 1f, val topLength: Float = 1f, val shiftX: Float = 0f,
@@ -346,6 +358,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         actionsRow.addView(directShapeButton)
         faceButton = button("▣ SELECT FACE") { toggleFaceMode() }
         actionsRow.addView(faceButton)
+        drawRegionButton=button("▱ DRAW AREA") { toggleDrawArea() }
+        actionsRow.addView(drawRegionButton)
         undoButton = button("↶ UNDO") { undoShape() }
         redoButton = button("↷ REDO") { redoShape() }
         actionsRow.addView(undoButton)
@@ -358,15 +372,20 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         actionsRow.addView(button("ADVANCED • SOON") {
             toast("Face area selection works on generated boxes. Edge/vertex editing is coming later.")
         })
-        drawer.addView(textLabel("FACE TOOLS • CHOOSE YOUR PANEL AREA", 13f, accent))
+        drawer.addView(textLabel("FACE TOOLS • DRAW ON THE MODEL", 13f, accent))
+        drawer.addView(button("✎ START DRAWING ON FACE") { if(!drawAreaMode) toggleDrawArea()
+            else toast("Already drawing. Drag across a visible box face.") })
+        drawer.addView(textLabel("DRAW AREA: touch one point and drag to size. Bend the four cyan mid-edge handles, then PULL.",12f,muted))
         faceSelectionText = textLabel("Face selection is off", 12f, muted)
         drawer.addView(faceSelectionText)
         val areaShapeRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         drawer.addView(areaShapeRow)
         regionRectButton=button("▭ RECTANGLE") { regionKind=0; updateAreaButtons(); faceOverlay.invalidate() }
         regionOvalButton=button("◯ OVAL") { regionKind=1; updateAreaButtons(); faceOverlay.invalidate() }
+        regionCurveButton=button("〰 CURVE") { regionKind=2; updateAreaButtons(); faceOverlay.invalidate() }
         areaShapeRow.addView(regionRectButton,LinearLayout.LayoutParams(0,dp(52),1f))
         areaShapeRow.addView(regionOvalButton,LinearLayout.LayoutParams(0,dp(52),1f))
+        areaShapeRow.addView(regionCurveButton,LinearLayout.LayoutParams(0,dp(52),1f))
         regionWidthSlider=profileSlider(drawer,"AREA WIDTH",15,85,55) { "$it% of face" }
         regionHeightSlider=profileSlider(drawer,"AREA HEIGHT",15,85,55) { "$it% of face" }
         regionOffsetUSlider=profileSlider(drawer,"LEFT / RIGHT POSITION",-80,80,0) { "$it%" }
@@ -465,7 +484,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             return
         }
         directShapeMode = !directShapeMode
-        if (directShapeMode) { faceMode = false; selectedFace = null }
+        if (directShapeMode) {
+            faceMode = false; drawAreaMode = false; selectedFace = null
+            drawPreview=null; edgeDragIndex=-1
+        }
         syncShapeUi()
         status.text = if (directShapeMode)
             "EDIT TOP: drag LEAN / WIDTH / LENGTH handles • lift finger to apply"
@@ -479,18 +501,42 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
         faceMode = !faceMode
         if (faceMode) directShapeMode = false
+        else drawAreaMode=false
+        drawPreview=null
+        edgeDragIndex=-1
         selectedFace = null
         syncShapeUi()
         status.text = if (faceMode) "FACE MODE: tap a face, then drag the white circle or enter metres"
                       else "Face mode off • orbit normally"
     }
 
+    private fun toggleDrawArea() {
+        if(currentShape==null) {
+            toast("Draw a region on a generated box, not an imported GLB.")
+            return
+        }
+        faceMode=true
+        directShapeMode=false
+        drawAreaMode=!drawAreaMode
+        drawStartUv=null
+        drawPreview=null
+        drawingFace=-1
+        edgeDragIndex=-1
+        selectedFace=null
+        syncShapeUi()
+        status.text=if(drawAreaMode) "DRAW AREA: touch a face and drag out your selection"
+                    else "FACE MODE: tap a face or draw an area"
+        if(drawAreaMode) setDrawerVisible(false)
+    }
+
     private fun setDrawerVisible(opened: Boolean) {
         drawer.visibility = if (opened) View.VISIBLE else View.GONE
         drawerScroll.visibility = if (opened) View.VISIBLE else View.GONE
         drawerToggle.text = if (opened) "▼ HIDE TOOLS" else "▲ OPEN TOOLS"
-        status.text = if (faceMode)
-            "FACE MODE: tap surface • drag selected circle • or enter metres"
+        status.text = if(drawAreaMode)
+            "DRAW AREA: drag from first corner to opposite corner"
+        else if (faceMode)
+            "FACE MODE: tap surface • bend curved edges • or pull"
         else if (directShapeMode)
             "EDIT TOP: drag colored handles • other gestures still orbit"
         else if (opened) "Right joystick: orbit • pinch: zoom • drag: rotate"
@@ -518,15 +564,16 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun renderShape(shape: Shape): Boolean {
-        val parts=FloatArray(36)
+        val parts=FloatArray(60)
         shape.areas.forEachIndexed { face,f ->
-            val p=face*6
+            val p=face*10
             parts[p]=f.kind.toFloat()
             parts[p+1]=f.width
             parts[p+2]=f.height
             parts[p+3]=f.offsetU
             parts[p+4]=f.offsetV
             parts[p+5]=f.depth
+            for(edge in 0..3) parts[p+6+edge]=f.curves[edge]
         }
         val mesh=NativeGeometry.generateMultiFaceBox(
             shape.width,shape.height,shape.length,
@@ -592,11 +639,12 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun fromNative(): Shape? {
         val values = NativeProject.currentShape() ?: return null
-        if (values.size != 42) return null
+        if (values.size != 66) return null
         val areas=List(6) { face ->
-            val p=6+face*6
+            val p=6+face*10
             FaceArea(values[p].toInt(),values[p+1],values[p+2],
-                     values[p+3],values[p+4],values[p+5])
+                     values[p+3],values[p+4],values[p+5],
+                     List(4) { edge->values[p+6+edge] })
         }
         return Shape(values[0], values[1], values[2],
             values[3], values[4], values[5], areas)
@@ -665,7 +713,14 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         topWidthSlider.isEnabled = shape != null
         topLengthSlider.isEnabled = shape != null
         shiftSlider.isEnabled = shape != null
-        if (shape == null) { directShapeMode = false; faceMode = false; selectedFace = null }
+        if (shape == null) {
+            directShapeMode=false;faceMode=false;drawAreaMode=false
+            selectedFace=null;drawPreview=null;edgeDragIndex=-1
+        }
+        if (::drawRegionButton.isInitialized) {
+            drawRegionButton.isEnabled=shape!=null
+            drawRegionButton.text=if(drawAreaMode) "● DRAWING AREA" else "▱ DRAW AREA"
+        }
         if (::faceButton.isInitialized) {
             faceButton.isEnabled = shape != null
             faceButton.text = if (faceMode) "● FACE MODE ON" else "▣ SELECT FACE"
@@ -686,6 +741,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if (::extrudeApplyButton.isInitialized) extrudeApplyButton.isEnabled = faceMode && selectedFace != null
         if (::regionRectButton.isInitialized) regionRectButton.isEnabled=faceMode && selectedFace!=null
         if (::regionOvalButton.isInitialized) regionOvalButton.isEnabled=faceMode && selectedFace!=null
+        if (::regionCurveButton.isInitialized) regionCurveButton.isEnabled=faceMode && selectedFace!=null
         if (::regionWidthSlider.isInitialized) {
             for(slider in arrayOf(regionWidthSlider,regionHeightSlider,regionOffsetUSlider,regionOffsetVSlider))
                 slider.isEnabled=faceMode && selectedFace!=null
@@ -1062,6 +1118,78 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         return result
     }
 
+    /** Face-local coordinates are derived from the projected original face
+     * corners. This deliberately uses the same camera as the selection mesh,
+     * so a finger drag maps to the face instead of the phone screen axes. */
+    private fun screenFaceUv(face:Int,x:Float,y:Float):FaceUv? {
+        val base=baseGeneratedMesh ?: return null
+        val packed=currentGeneratedMesh ?: return null
+        if(face !in 0..5 || !::viewer.isInitialized) return null
+        val projector=MeshProjector(packed)
+        val offset=face*36
+        val corners=intArrayOf(0,1,2,5).map { corner ->
+            val i=offset+corner*6
+            projector.atWorld(base[i],base[i+1],base[i+2]) ?: return null
+        }
+        fun interpolate(a:Int,b:Int,c:Int):Triple<Float,Float,Float>? {
+            val pa=corners[a];val pb=corners[b];val pc=corners[c]
+            val d=(pb.y-pc.y)*(pa.x-pc.x)+(pc.x-pb.x)*(pa.y-pc.y)
+            if(kotlin.math.abs(d)<1e-4f) return null
+            val alpha=((pb.y-pc.y)*(x-pc.x)+(pc.x-pb.x)*(y-pc.y))/d
+            val beta=((pc.y-pa.y)*(x-pc.x)+(pa.x-pc.x)*(y-pc.y))/d
+            return Triple(alpha,beta,1f-alpha-beta)
+        }
+        val t0=interpolate(0,1,2) ?: return null
+        val t1=interpolate(0,2,3) ?: return null
+        val inside0=minOf(t0.first,t0.second,t0.third)
+        val inside1=minOf(t1.first,t1.second,t1.third)
+        return if(inside0>=inside1) {
+            FaceUv((t0.second+t0.third).coerceIn(-0.5f,1.5f),
+                   t0.third.coerceIn(-0.5f,1.5f))
+        } else {
+            FaceUv(t1.second.coerceIn(-0.5f,1.5f),
+                  (t1.second+t1.third).coerceIn(-0.5f,1.5f))
+        }
+    }
+
+    private fun drawnArea(start:FaceUv,end:FaceUv):FaceArea {
+        val u0=start.u.coerceIn(0.06f,0.94f)
+        val u1=end.u.coerceIn(0.06f,0.94f)
+        val v0=start.v.coerceIn(0.06f,0.94f)
+        val v1=end.v.coerceIn(0.06f,0.94f)
+        val width=kotlin.math.abs(u1-u0).coerceIn(0.15f,0.85f)
+        val height=kotlin.math.abs(v1-v0).coerceIn(0.15f,0.85f)
+        val centerU=((u0+u1)*0.5f).coerceIn(0.5f-0.4f*(1f-width),0.5f+0.4f*(1f-width))
+        val centerV=((v0+v1)*0.5f).coerceIn(0.5f-0.4f*(1f-height),0.5f+0.4f*(1f-height))
+        val offsetU=((centerU-0.5f)*2f/(1f-width)).coerceIn(-0.8f,0.8f)
+        val offsetV=((centerV-0.5f)*2f/(1f-height)).coerceIn(-0.8f,0.8f)
+        return FaceArea(kind=2,width=width,height=height,offsetU=offsetU,
+            offsetV=offsetV,depth=0f)
+    }
+
+    private fun bendArea(area:FaceArea,edge:Int,delta:FaceUv):FaceArea {
+        if(edge !in 0..3) return area
+        val shortSide=minOf(area.width,area.height)
+        val inward=when(edge) {
+            0 -> delta.v
+            1 -> -delta.u
+            2 -> -delta.v
+            else -> delta.u
+        }
+        val centerU=0.5f+area.offsetU*(1f-area.width)*0.5f
+        val centerV=0.5f+area.offsetV*(1f-area.height)*0.5f
+        val margin=when(edge) {
+            0 -> centerV-area.height*0.5f
+            1 -> 1f-(centerU+area.width*0.5f)
+            2 -> 1f-(centerV+area.height*0.5f)
+            else -> centerU-area.width*0.5f
+        }
+        val minCurve=-minOf(0.2f,0.75f*margin/shortSide)
+        val curves=area.curves.toMutableList()
+        curves[edge]=(area.curves[edge]+inward/shortSide).coerceIn(minCurve,0.2f)
+        return area.copy(kind=2,curves=curves)
+    }
+
     private fun clampExtrusion(value: Float, shape: Shape): Float {
         val dimension=minOf(shape.width,shape.height,shape.length)
         return value.coerceIn(-0.4f*dimension,2.0f*dimension)
@@ -1071,6 +1199,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if(!::regionRectButton.isInitialized) return
         regionRectButton.text=if(regionKind==0) "● RECTANGLE" else "▭ RECTANGLE"
         regionOvalButton.text=if(regionKind==1) "● OVAL" else "◯ OVAL"
+        regionCurveButton.text=if(regionKind==2) "● CURVE" else "〰 CURVE"
     }
 
     private fun syncRegionUi(face:Int) {
@@ -1094,7 +1223,11 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             (regionHeightSlider.progress+15)/100f,
             (regionOffsetUSlider.progress-80)/100f,
             (regionOffsetVSlider.progress-80)/100f,
-            depth)
+            depth,
+            if(regionKind==2) {
+                edgeLiveArea?.curves ?: selectedFace?.let { currentShape?.areas?.get(it) }
+                    ?.takeIf { it.kind==2 }?.curves ?: List(4) { 0f }
+            } else List(4) { 0f })
 
     private fun applyFaceInput() {
         val id=selectedFace ?: run { toast("Tap a box face before extruding."); return }
@@ -1140,7 +1273,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         var committed=false
         try {
             NativeProject.setFaceRegion(face,area.kind,area.width,area.height,
-                area.offsetU,area.offsetV,area.depth)
+                area.offsetU,area.offsetV,area.depth,area.curves.toFloatArray())
             committed=true
             if(!renderShape(next)) {
                 NativeProject.undo()
@@ -1154,7 +1287,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             status.text=faceName(face) +
                 if(area.kind<0) ": edit removed; other faces preserved"
                 else ": " + String.format(java.util.Locale.US,"%+.2f m",area.depth) +
-                     " • " + (if(area.kind==0)"rectangle" else "oval") +
+                     " • " + (when(area.kind){0->"rectangle";1->"oval";else->"curved"}) +
                      " • other faces preserved"
         } catch(error:Exception) {
             if(committed) {
@@ -1174,7 +1307,37 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             MotionEvent.ACTION_DOWN -> {
                 faceTouchStartX=event.x
                 faceTouchStartY=event.y
+                if(drawAreaMode) {
+                    val face=pickFace(event.x,event.y) ?: return false
+                    val uv=screenFaceUv(face,event.x,event.y) ?: return false
+                    drawingFace=face
+                    selectedFace=face
+                    drawStartUv=uv
+                    drawPreview=drawnArea(uv,uv)
+                    regionKind=2
+                    updateAreaButtons()
+                    syncShapeUi()
+                    faceOverlay.invalidate()
+                    status.text="DRAW AREA: drag to opposite corner"
+                    return true
+                }
                 val existing=selectedFace
+                if(existing!=null) {
+                    val edge=faceOverlay.hitCurveEdge(event.x,event.y)
+                    if(edge>=0) {
+                        val uv=screenFaceUv(existing,event.x,event.y) ?: return false
+                        edgeDragIndex=edge
+                        edgeStartUv=uv
+                        val shape=currentShape ?: return false
+                        val previous=shape.areas[existing]
+                        edgeStartArea=areaFromControls(if(previous.kind>=0) previous.depth else 0f)
+                            .copy(kind=2)
+                        edgeLiveArea=edgeStartArea
+                        faceOverlay.invalidate()
+                        status.text="BEND EDGE " + (edge+1) + ": drag cyan point"
+                        return true
+                    }
+                }
                 faceDragHandle=existing!=null && faceOverlay.hitPull(event.x,event.y)
                 if(faceDragHandle) {
                     val shape=currentShape ?: return false
@@ -1185,6 +1348,30 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 return false
             }
             MotionEvent.ACTION_MOVE -> {
+                if(drawAreaMode && drawingFace>=0) {
+                    val startUv=drawStartUv ?: return true
+                    val endUv=screenFaceUv(drawingFace,event.x,event.y) ?: return true
+                    drawPreview=drawnArea(startUv,endUv)
+                    faceOverlay.invalidate()
+                    val preview=drawPreview ?: return true
+                    status.text=faceName(drawingFace)+": " +
+                        (preview.width*100).toInt() + "% × " +
+                        (preview.height*100).toInt() + "% • release to keep"
+                    return true
+                }
+                if(edgeDragIndex>=0) {
+                    val face=selectedFace ?: return true
+                    val beginUv=edgeStartUv ?: return true
+                    val uv=screenFaceUv(face,event.x,event.y) ?: return true
+                    val base=edgeStartArea ?: return true
+                    val movement=FaceUv(uv.u-beginUv.u,uv.v-beginUv.v)
+                    edgeLiveArea=bendArea(base,edgeDragIndex,movement)
+                    faceOverlay.invalidate()
+                    status.text="EDGE " + (edgeDragIndex+1) + ": bend " +
+                        String.format(java.util.Locale.US,"%+.2f",
+                            edgeLiveArea?.curves?.get(edgeDragIndex) ?: 0f)
+                    return true
+                }
                 if(!faceDragHandle) return false
                 val shape=currentShape ?: return true
                 val dy=faceTouchStartY-event.y
@@ -1197,32 +1384,80 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 return true
             }
             MotionEvent.ACTION_UP -> {
+                if(drawAreaMode && drawingFace>=0) {
+                    val face=drawingFace
+                    val startUv=drawStartUv
+                    val endUv=screenFaceUv(face,event.x,event.y)
+                    val dx=event.x-faceTouchStartX
+                    val dy=event.y-faceTouchStartY
+                    val region=if(startUv!=null && endUv!=null)
+                        drawnArea(startUv,endUv) else drawPreview
+                    drawAreaMode=false
+                    drawingFace=-1
+                    drawStartUv=null
+                    drawPreview=null
+                    edgeLiveArea=null
+                    if(region!=null && dx*dx+dy*dy>dp(25)*dp(25)) {
+                        selectedFace=face
+                        regionKind=2
+                        commitRegion(face,region.copy(kind=2,depth=0f))
+                        status.text="Area drawn • drag cyan edges to curve • PULL to shape"
+                    } else {
+                        status.text="Area too small • touch and drag farther to size"
+                    }
+                    syncShapeUi()
+                    faceOverlay.invalidate()
+                    return true
+                }
+                if(edgeDragIndex>=0) {
+                    val face=selectedFace
+                    val target=edgeLiveArea
+                    edgeDragIndex=-1
+                    edgeStartUv=null
+                    edgeStartArea=null
+                    edgeLiveArea=null
+                    if(face!=null && target!=null) {
+                        regionKind=2
+                        commitRegion(face,target)
+                    }
+                    faceOverlay.invalidate()
+                    return true
+                }
                 if(faceDragHandle) {
                     faceDragHandle=false
-                    val id=selectedFace
-                    if(id!=null) applyFaceExtrusion(id,faceDragPreview)
+                    selectedFace?.let { applyFaceExtrusion(it,faceDragPreview) }
                     return true
                 }
                 val dx=event.x-faceTouchStartX
                 val dy=event.y-faceTouchStartY
                 if(event.pointerCount==1 && dx*dx+dy*dy<=dp(14)*dp(14)) {
                     selectedFace=pickFace(event.x,event.y)
+                    drawPreview=null
+                    edgeLiveArea=null
                     val face=selectedFace
                     if(face!=null) {
-                        val shape=currentShape
-                        if(shape!=null) syncRegionUi(face)
-                        status.text=faceName(face) + " selected • choose area shape/size, then pull"
+                        syncRegionUi(face)
+                        status.text=faceName(face)+
+                            " selected • DRAW AREA or bend cyan edge handles"
                     } else status.text="No face found • tap a solid visible surface"
                     syncShapeUi()
                 }
-                return false // Forward UP to Filament to release camera gestures
+                return false // Pass camera release through unchanged.
             }
             MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> {
-                val captured=faceDragHandle
+                val captured=(drawingFace>=0 || edgeDragIndex>=0 || faceDragHandle)
+                drawingFace=-1
+                drawStartUv=null
+                drawPreview=null
+                edgeDragIndex=-1
+                edgeStartUv=null
+                edgeStartArea=null
+                edgeLiveArea=null
                 faceDragHandle=false
+                if(captured) faceOverlay.invalidate()
                 return captured
             }
-            else -> return faceDragHandle
+            else -> return drawingFace>=0 || edgeDragIndex>=0 || faceDragHandle
         }
     }
 
@@ -1243,10 +1478,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             val outer=ids.map { vi ->
                 FloatArray(3) { axis -> base[start+vi*6+axis] }
             }
-            val feature=areaFromControls(0f)
+            val feature=drawPreview ?: edgeLiveArea ?: areaFromControls(0f)
             val cu=0.5f+feature.offsetU*(1-feature.width)*0.5f
             val cv=0.5f+feature.offsetV*(1-feature.height)*0.5f
-            val depth=shape.areas[id].depth
+            val depth=if(drawPreview!=null) 0f else shape.areas[id].depth
             val nx=base[start+3]
             val ny=base[start+4]
             val nz=base[start+5]
@@ -1260,13 +1495,39 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 }
                 return mapper.atWorld(x+nx*depth,y+ny*depth,z+nz*depth)
             }
-            if(regionKind==0) {
+            if(feature.kind==0) {
                 return listOf(
                     facePoint(cu-feature.width*0.5f,cv-feature.height*0.5f),
                     facePoint(cu+feature.width*0.5f,cv-feature.height*0.5f),
                     facePoint(cu+feature.width*0.5f,cv+feature.height*0.5f),
                     facePoint(cu-feature.width*0.5f,cv+feature.height*0.5f)
                 ).map { it ?: return null }
+            }
+            if(feature.kind==2) {
+                val cornersUv=arrayOf(
+                    FaceUv(cu-feature.width*0.5f,cv-feature.height*0.5f),
+                    FaceUv(cu+feature.width*0.5f,cv-feature.height*0.5f),
+                    FaceUv(cu+feature.width*0.5f,cv+feature.height*0.5f),
+                    FaceUv(cu-feature.width*0.5f,cv+feature.height*0.5f)
+                )
+                val result=ArrayList<ScreenPoint>(32)
+                for(side in 0..3) {
+                    val a=cornersUv[side]
+                    val b=cornersUv[(side+1)%4]
+                    val inwardU=when(side){1->-1f;3->1f;else->0f}
+                    val inwardV=when(side){0->1f;2->-1f;else->0f}
+                    val amount=2f*feature.curves[side]*minOf(feature.width,feature.height)
+                    val ctrlU=(a.u+b.u)*0.5f+inwardU*amount
+                    val ctrlV=(a.v+b.v)*0.5f+inwardV*amount
+                    for(step in 0 until 8) {
+                        val t=step/8f
+                        val one=1f-t
+                        val u=one*one*a.u+2f*one*t*ctrlU+t*t*b.u
+                        val v=one*one*a.v+2f*one*t*ctrlV+t*t*b.v
+                        result.add(facePoint(u,v) ?: return null)
+                    }
+                }
+                return result
             }
             val tau=2.0*Math.PI
             val cornerUv=arrayOf(
@@ -1294,6 +1555,24 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             return PointF(p.map { it.x }.average().toFloat(),
                 p.map { it.y }.average().toFloat())
         }
+        fun hitCurveEdge(x:Float,y:Float):Int {
+            if(drawAreaMode || regionKind!=2) return -1
+            val outline=selectedPoints() ?: return -1
+            if(outline.size!=32) return -1
+            var best=-1
+            var distance=dp(30).toFloat()*dp(30)
+            for(side in 0..3) {
+                val midpoint=outline[side*8+4]
+                val dx=midpoint.x-x
+                val dy=midpoint.y-y
+                val square=dx*dx+dy*dy
+                if(square<distance) {
+                    distance=square
+                    best=side
+                }
+            }
+            return best
+        }
         fun hitPull(x: Float,y: Float): Boolean {
             val p=center() ?: return false
             val dx=x-p.x
@@ -1314,6 +1593,24 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             paint.strokeWidth=dp(3).toFloat()
             paint.color=Color.rgb(255,209,91)
             canvas.drawPath(path,paint)
+            if(drawAreaMode) {
+                paint.style=Paint.Style.FILL
+                paint.color=Color.rgb(255,210,96)
+                for(index in listOf(0,p.size/4,p.size/2,p.size*3/4)) {
+                    canvas.drawCircle(p[index].x,p[index].y,dp(7).toFloat(),paint)
+                }
+                return
+            }
+            if(regionKind==2 && p.size==32) {
+                paint.style=Paint.Style.FILL
+                for(side in 0..3) {
+                    val midpoint=p[side*8+4]
+                    paint.color=Color.rgb(22,52,66)
+                    canvas.drawCircle(midpoint.x,midpoint.y,dp(15).toFloat(),paint)
+                    paint.color=Color.rgb(54,212,188)
+                    canvas.drawCircle(midpoint.x,midpoint.y,dp(10).toFloat(),paint)
+                }
+            }
             val x=p.map { it.x }.average().toFloat()
             val y=p.map { it.y }.average().toFloat()
             paint.style=Paint.Style.FILL

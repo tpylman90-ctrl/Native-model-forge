@@ -12,7 +12,8 @@ object NativeProject {
     external fun reshape(width: Float, height: Float, length: Float,
                          topWidth: Float, topLength: Float, shiftX: Float)
     external fun setFaceRegion(faceIndex: Int, kind: Int, width: Float, height: Float,
-                               offsetU: Float, offsetV: Float, depth: Float)
+                               offsetU: Float, offsetV: Float, depth: Float,
+                               curves: FloatArray)
     external fun undo(): Boolean
     external fun redo(): Boolean
     external fun canUndo(): Boolean

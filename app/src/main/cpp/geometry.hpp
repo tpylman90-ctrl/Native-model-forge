@@ -13,7 +13,7 @@ std::vector<Vertex> box(float width, float height, float length);
 std::vector<Vertex> profiledBox(float width, float height, float length, float topWidth, float topLength, float shiftX);
 // Six independent semantic faces. A face can hold a rectangular or oval
 // inset feature with relative width/height and an offset within its margins.
-// kind=-1: none; kind=0: rectangle; kind=1: oval.
+// kind=-1: none; 0: rectangle; 1: oval; 2: 4 independently curved edges.
 struct FaceFeature {
     int kind=-1;
     float width=0.55f;
@@ -21,6 +21,9 @@ struct FaceFeature {
     float offsetU=0.f; // normalized -0.8..+0.8 of available margin
     float offsetV=0.f;
     float depth=0.f;
+    // Signed quadratic edge bulge in fractions of the smaller region side.
+    // The four edges run bottom, right, top, left in face-local coordinates.
+    std::array<float,4> curves{{0.f,0.f,0.f,0.f}};
 };
 using FaceFeatures = std::array<FaceFeature,6>;
 void validateFaceFeature(const FaceFeature& feature,float minDimension);

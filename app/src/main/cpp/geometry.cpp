@@ -93,7 +93,7 @@ void triangle(std::vector<Vertex>& out,Point3 a,Point3 b,Point3 c) {
 }
 }
 void validateFaceFeature(const FaceFeature& f,float minDimension) {
-    if(f.kind < -1 || f.kind>1 ||
+    if(f.kind < -1 || f.kind>2 ||
        !std::isfinite(f.width)||!std::isfinite(f.height)||
        !std::isfinite(f.offsetU)||!std::isfinite(f.offsetV)||
        !std::isfinite(f.depth)||
@@ -105,6 +105,20 @@ void validateFaceFeature(const FaceFeature& f,float minDimension) {
        f.depth > 2.f*minDimension ||
        (f.kind == -1 && f.depth!=0.f))
        throw std::invalid_argument("invalid face area, shape or extrusion depth");
+    const float cu=0.5f+f.offsetU*(1.f-f.width)*0.5f;
+    const float cv=0.5f+f.offsetV*(1.f-f.height)*0.5f;
+    const float shortSide=std::fmin(f.width,f.height);
+    const float margins[4]={
+        cv-f.height*0.5f, 1.f-(cu+f.width*0.5f),
+        1.f-(cv+f.height*0.5f), cu-f.width*0.5f
+    };
+    for(int edge=0;edge<4;++edge) {
+        const float curve=f.curves[static_cast<std::size_t>(edge)];
+        if(!std::isfinite(curve) || std::fabs(curve)>0.200001f ||
+           (curve<0.f && -curve*shortSide>margins[edge]*0.80f+1e-6f) ||
+           (f.kind!=2 && std::fabs(curve)>1e-6f))
+            throw std::invalid_argument("curved edge extends outside face");
+    }
 }
 int faceVertexCount(const FaceFeature& f) {
     if(f.kind<0 || std::fabs(f.depth)<1e-6f) return 6;
@@ -153,6 +167,22 @@ std::vector<Vertex> multiFaceBox(float w,float h,float l,
                 if(f.kind==0) {
                     u=cu+((side==1||side==2)?f.width*0.5f:-f.width*0.5f);
                     v=cv+((side>=2)?f.height*0.5f:-f.height*0.5f);
+                } else if(f.kind==2) {
+                    const float u0=cu+((side==1||side==2)?f.width*0.5f:-f.width*0.5f);
+                    const float v0=cv+((side>=2)?f.height*0.5f:-f.height*0.5f);
+                    const int next=(side+1)%4;
+                    const float u1=cu+((next==1||next==2)?f.width*0.5f:-f.width*0.5f);
+                    const float v1=cv+((next>=2)?f.height*0.5f:-f.height*0.5f);
+                    const float inwardU=(side==1?-1.f:(side==3?1.f:0.f));
+                    const float inwardV=(side==0?1.f:(side==2?-1.f:0.f));
+                    const float displacement=2.f*f.curves[static_cast<std::size_t>(side)]*
+                        std::fmin(f.width,f.height);
+                    const float ctrlU=(u0+u1)*0.5f+inwardU*displacement;
+                    const float ctrlV=(v0+v1)*0.5f+inwardV*displacement;
+                    const float t=static_cast<float>(k)/steps;
+                    const float omt=1.f-t;
+                    u=omt*omt*u0+2.f*omt*t*ctrlU+t*t*u1;
+                    v=omt*omt*v0+2.f*omt*t*ctrlV+t*t*v1;
                 } else {
                     const float theta=angles[side]+
                         (angles[side+1]-angles[side])*

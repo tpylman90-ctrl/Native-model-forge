@@ -99,6 +99,29 @@ int main() {
     try { forge::multiFaceBox(4,2,6,1,1,0,features); }
     catch(const std::invalid_argument&) {rejected=true;}
     assert(rejected);
+    for(int side=0;side<4;++side) {
+        forge::FaceFeatures curved{};
+        auto& f=curved[4];
+        f.kind=2; f.width=0.48f; f.height=0.62f; f.depth=0.24f;
+        f.curves[static_cast<std::size_t>(side)]=0.18f;
+        auto mesh=forge::multiFaceBox(4,2,6,1,1,0,curved);
+        assert(mesh.size()==390+5*6);
+        for(std::size_t i=0;i<mesh.size();i+=3) {
+            const auto& v=mesh[i],&w=mesh[i+1],&x=mesh[i+2];
+            const float ax=w.px-v.px,ay=w.py-v.py,az=w.pz-v.pz;
+            const float bx=x.px-v.px,by=x.py-v.py,bz=x.pz-v.pz;
+            const float signedArea=(ay*bz-az*by)*v.nx+
+                (az*bx-ax*bz)*v.ny+(ax*by-ay*bx)*v.nz;
+            assert(std::isfinite(signedArea) && signedArea>0.f);
+        }
+        curved[4].curves[static_cast<std::size_t>(side)]=-0.22f;
+        bool blocked=false;
+        try { forge::multiFaceBox(4,2,6,1,1,0,curved); }
+        catch(const std::invalid_argument&) {blocked=true;}
+        // Negative bulges must respect the available outer-face margin.
+        assert(blocked || forge::multiFaceBox(4,2,6,1,1,0,curved).size()==420);
+    }
+    std::cout<<"MODEL_FORGE_CURVE_KERNEL: PASS quadratic face edges and normals"<<std::endl;
     std::cout<<"MODEL_FORGE_MULTIFACE: PASS independent faces and rectangular/oval geometry"<<std::endl;
     std::cout << "MODEL_FORGE_FACE_EXTRUDE: PASS 6 faces, positive/negative inset extrusions, normals and bounds" << std::endl;
     std::cout << "MODEL_FORGE_NATIVE_CORE: PASS exact dimensions / 12 triangles / hard normals / rejects invalid" << std::endl;
