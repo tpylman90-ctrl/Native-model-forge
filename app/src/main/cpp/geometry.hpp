@@ -11,4 +11,8 @@ struct Vertex {
 std::vector<Vertex> box(float width, float height, float length);
 // Top scales 0.35..1.75; shiftX fraction of width in -0.4..0.4.
 std::vector<Vertex> profiledBox(float width, float height, float length, float topWidth, float topLength, float shiftX);
+// Semantic face indices: front, rear, right, left, top, bottom (0..5).
+// One inset face extrusion/recess may be added without replacing the base hull.
+std::vector<Vertex> faceExtrudedBox(float width, float height, float length,
+    float topWidth, float topLength, float shiftX, int faceIndex, float depth);
 }
