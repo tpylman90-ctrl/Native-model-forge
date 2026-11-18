@@ -68,6 +68,10 @@ The face editor now has a **DRAW AREA** mode. Tap it and drag across a visible f
 
 The first drawing pass supports one four-sided region per original face, four independent curved sides and one signed extrusion depth. It does not yet support arbitrary freehand outlines, extra control points, multiple disconnected areas on a single face, CAD NURBS/B-Rep, or editing imported GLB topology. See [milestone 06](docs/FOUNDATION_MILESTONE_06.md).
 
+## v0.7.1 curved-region hotfix
+
+The initial v0.7 phone test revealed **Area not applied: nonintegral face shape code** and bent edges snapping straight. Cause: the Android JNI parser was limited to face kinds -1 through 1 while the new four-edge curved region is type 2. v0.7.1 shares one checked face-type decoder between native host tests and JNI, accepts kind 2, and adds tests for curved zero-depth drafts and subsequently pulled geometry. Android now reports the region as saved only after its native commit succeeds. Development package/signing identity is unchanged and versionCode 11 installs over DEV v0.7. User device acceptance remains required.
+
 ## First real-user gate
 
 A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.
