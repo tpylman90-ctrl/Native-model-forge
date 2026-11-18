@@ -26,6 +26,8 @@ struct FaceFeature {
     std::array<float,4> curves{{0.f,0.f,0.f,0.f}};
 };
 using FaceFeatures = std::array<FaceFeature,6>;
+// Shared JNI/host validation: -1 empty, 0 rectangle, 1 oval, 2 curved.
+bool decodeFaceKind(float raw,int& kind) noexcept;
 void validateFaceFeature(const FaceFeature& feature,float minDimension);
 int faceVertexCount(const FaceFeature& feature);
 std::vector<Vertex> multiFaceBox(float width,float height,float length,

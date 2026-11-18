@@ -1055,7 +1055,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun activeFaceVertices(f: FaceArea): Int =
         if(f.kind<0 || kotlin.math.abs(f.depth)<1e-6f) 6
-        else if(f.kind==0) 54 else 390
+        else if(f.kind==0) 54 else if(f.kind==1) 390 else 396
 
     private fun faceStart(face:Int, shape:Shape):Int {
         var offset=0
@@ -1073,7 +1073,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         else {
             val n=if(f.kind==0) 4 else 32
             val capStart=start+if(n==4) 48 else 300
-            IntArray(n) { i -> when(i) {
+            if(f.kind==2) IntArray(32) { i -> capStart+i*3+1 }
+            else IntArray(n) { i -> when(i) {
                 0 -> capStart
                 1 -> capStart+1
                 else -> capStart+(i-2)*3+2
@@ -1263,10 +1264,11 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         commitRegion(face,areaFromControls(safe))
     }
 
-    private fun commitRegion(face:Int,area:FaceArea) {
-        val original=currentShape ?: return
-        if(face !in 0..5) return
-        if(original.areas[face]==area) return
+    /** Return true only when the selected area is actually in the native project. */
+    private fun commitRegion(face:Int,area:FaceArea):Boolean {
+        val original=currentShape ?: return false
+        if(face !in 0..5) return false
+        if(original.areas[face]==area) return true
         val updated=original.areas.toMutableList()
         updated[face]=area
         val next=original.copy(areas=updated)
@@ -1279,7 +1281,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 NativeProject.undo()
                 renderShape(original)
                 toast("Face preview failed; previous geometry restored.")
-                return
+                return false
             }
             saveWorkingShape()
             syncRegionUi(face)
@@ -1289,6 +1291,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 else ": " + String.format(java.util.Locale.US,"%+.2f m",area.depth) +
                      " • " + (when(area.kind){0->"rectangle";1->"oval";else->"curved"}) +
                      " • other faces preserved"
+            return true
         } catch(error:Exception) {
             if(committed) {
                 try { NativeProject.undo(); renderShape(original) }
@@ -1297,7 +1300,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 }
             }
             Log.e("ModelForgeFace","Region rejected",error)
+            status.text="Area not applied • original shape preserved"
             toast("Area not applied: " + (error.message ?: "invalid geometry"))
+            return false
         }
     }
 
@@ -1400,8 +1405,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     if(region!=null && dx*dx+dy*dy>dp(25)*dp(25)) {
                         selectedFace=face
                         regionKind=2
-                        commitRegion(face,region.copy(kind=2,depth=0f))
-                        status.text="Area drawn • drag cyan edges to curve • PULL to shape"
+                        if(commitRegion(face,region.copy(kind=2,depth=0f))) {
+                            status.text="Area saved • bend cyan edges • PULL to shape"
+                        }
                     } else {
                         status.text="Area too small • touch and drag farther to size"
                     }

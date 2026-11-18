@@ -92,6 +92,12 @@ void triangle(std::vector<Vertex>& out,Point3 a,Point3 b,Point3 c) {
         out.push_back({p[0],p[1],p[2],n[0]/len,n[1]/len,n[2]/len});
 }
 }
+bool decodeFaceKind(float raw,int& kind) noexcept {
+    if(!std::isfinite(raw) || raw!=std::trunc(raw) || raw<-1.f || raw>2.f)
+        return false;
+    kind=static_cast<int>(raw);
+    return true;
+}
 void validateFaceFeature(const FaceFeature& f,float minDimension) {
     if(f.kind < -1 || f.kind>2 ||
        !std::isfinite(f.width)||!std::isfinite(f.height)||
@@ -122,7 +128,7 @@ void validateFaceFeature(const FaceFeature& f,float minDimension) {
 }
 int faceVertexCount(const FaceFeature& f) {
     if(f.kind<0 || std::fabs(f.depth)<1e-6f) return 6;
-    return f.kind==0 ? 54 : 390;
+    return f.kind==0 ? 54 : (f.kind==1 ? 390 : 396);
 }
 std::vector<Vertex> multiFaceBox(float w,float h,float l,
     float tw,float tl,float sx,const FaceFeatures& features) {
@@ -213,7 +219,18 @@ std::vector<Vertex> multiFaceBox(float w,float h,float l,
             const int j=(i+1)%n;
             profileQuad(mesh,inner[i],inner[j],cap[j],cap[i]);
         }
-        for(int i=1;i<n-1;++i) triangle(mesh,cap[0],cap[i],cap[i+1]);
+        if(f.kind==2) {
+            // A cap fan from boundary vertex zero degenerates when an edge is
+            // straight and that vertex is collinear with neighboring samples.
+            // Triangulate about an interior point instead: one guaranteed
+            // nondegenerate wedge for each curved/straight boundary segment.
+            Point3 capCenter=pointAt(outer,cu,cv);
+            for(int c=0;c<3;++c) capCenter[c]+=normal[c]*f.depth;
+            for(int i=0;i<n;++i)
+                triangle(mesh,capCenter,cap[i],cap[(i+1)%n]);
+        } else {
+            for(int i=1;i<n-1;++i) triangle(mesh,cap[0],cap[i],cap[i+1]);
+        }
     }
     return mesh;
 }
