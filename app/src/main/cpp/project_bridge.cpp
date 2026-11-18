@@ -48,11 +48,17 @@ Java_com_modelforge_nativeeditor_NativeProject_reshape(
     } catch(const std::exception& error) { javaError(env,error); }
 }
 extern "C" JNIEXPORT void JNICALL
-Java_com_modelforge_nativeeditor_NativeProject_setFaceExtrusion(
-    JNIEnv* env,jobject,jint faceIndex,jfloat depth) {
+Java_com_modelforge_nativeeditor_NativeProject_setFaceRegion(
+    JNIEnv* env,jobject,jint faceIndex,jint kind,jfloat width,jfloat height,
+    jfloat offsetU,jfloat offsetV,jfloat depth) {
     std::lock_guard<std::mutex> guard(projectMutex);
     try {
-        document.setFaceExtrusion(boxId(),faceIndex,depth,document.revision());
+        forge::FaceRegion feature;
+        feature.kind=kind;
+        feature.width=width;feature.height=height;
+        feature.offsetU=offsetU;feature.offsetV=offsetV;
+        feature.depthMetres=depth;
+        document.setFaceRegion(boxId(),faceIndex,feature,document.revision());
     } catch(const std::exception& error) { javaError(env,error); }
 }
 extern "C" JNIEXPORT jboolean JNICALL
@@ -83,18 +89,26 @@ Java_com_modelforge_nativeeditor_NativeProject_currentShape(JNIEnv* env,jobject)
        document.objects()[0].kind!=forge::GeometryKind::PolygonMesh)
         return nullptr;
     const auto& obj=document.objects()[0];
-    jfloat values[8] = {
+    jfloat values[42] = {
         static_cast<jfloat>(obj.sizeMetres[0]),
         static_cast<jfloat>(obj.sizeMetres[1]),
         static_cast<jfloat>(obj.sizeMetres[2]),
         static_cast<jfloat>(obj.topProfile[0]),
         static_cast<jfloat>(obj.topProfile[1]),
-        static_cast<jfloat>(obj.topProfile[2]),
-        static_cast<jfloat>(obj.extrusionFace),
-        static_cast<jfloat>(obj.extrusionDepthMetres)
+        static_cast<jfloat>(obj.topProfile[2])
     };
-    jfloatArray arr=env->NewFloatArray(8);
-    if(arr) env->SetFloatArrayRegion(arr,0,8,values);
+    for(int i=0;i<6;++i) {
+        const auto& f=obj.faceRegions[static_cast<std::size_t>(i)];
+        const int start=6+i*6;
+        values[start+0]=static_cast<jfloat>(f.kind);
+        values[start+1]=static_cast<jfloat>(f.width);
+        values[start+2]=static_cast<jfloat>(f.height);
+        values[start+3]=static_cast<jfloat>(f.offsetU);
+        values[start+4]=static_cast<jfloat>(f.offsetV);
+        values[start+5]=static_cast<jfloat>(f.depthMetres);
+    }
+    jfloatArray arr=env->NewFloatArray(42);
+    if(arr) env->SetFloatArrayRegion(arr,0,42,values);
     return arr;
 }
 extern "C" JNIEXPORT jstring JNICALL
