@@ -1263,10 +1263,11 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         commitRegion(face,areaFromControls(safe))
     }
 
-    private fun commitRegion(face:Int,area:FaceArea) {
-        val original=currentShape ?: return
-        if(face !in 0..5) return
-        if(original.areas[face]==area) return
+    /** Return true only when the selected area is actually in the native project. */
+    private fun commitRegion(face:Int,area:FaceArea):Boolean {
+        val original=currentShape ?: return false
+        if(face !in 0..5) return false
+        if(original.areas[face]==area) return true
         val updated=original.areas.toMutableList()
         updated[face]=area
         val next=original.copy(areas=updated)
@@ -1279,7 +1280,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 NativeProject.undo()
                 renderShape(original)
                 toast("Face preview failed; previous geometry restored.")
-                return
+                return false
             }
             saveWorkingShape()
             syncRegionUi(face)
@@ -1289,6 +1290,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 else ": " + String.format(java.util.Locale.US,"%+.2f m",area.depth) +
                      " • " + (when(area.kind){0->"rectangle";1->"oval";else->"curved"}) +
                      " • other faces preserved"
+            return true
         } catch(error:Exception) {
             if(committed) {
                 try { NativeProject.undo(); renderShape(original) }
@@ -1297,7 +1299,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 }
             }
             Log.e("ModelForgeFace","Region rejected",error)
+            status.text="Area not applied • original shape preserved"
             toast("Area not applied: " + (error.message ?: "invalid geometry"))
+            return false
         }
     }
 
@@ -1400,8 +1404,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     if(region!=null && dx*dx+dy*dy>dp(25)*dp(25)) {
                         selectedFace=face
                         regionKind=2
-                        commitRegion(face,region.copy(kind=2,depth=0f))
-                        status.text="Area drawn • drag cyan edges to curve • PULL to shape"
+                        if(commitRegion(face,region.copy(kind=2,depth=0f))) {
+                            status.text="Area saved • bend cyan edges • PULL to shape"
+                        }
                     } else {
                         status.text="Area too small • touch and drag farther to size"
                     }
