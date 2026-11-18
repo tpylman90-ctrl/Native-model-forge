@@ -11,6 +11,7 @@ object NativeProject {
                                 topWidth: Float, topLength: Float, shiftX: Float)
     external fun reshape(width: Float, height: Float, length: Float,
                          topWidth: Float, topLength: Float, shiftX: Float)
+    external fun setFaceExtrusion(faceIndex: Int, depth: Float)
     external fun undo(): Boolean
     external fun redo(): Boolean
     external fun canUndo(): Boolean
