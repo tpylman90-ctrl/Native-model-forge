@@ -74,7 +74,7 @@ Java_com_modelforge_nativeeditor_NativeGeometry_generateMultiFaceBox(
         for(int i=0;i<6;++i) {
             const int j=6*i;
             const float kind=parts[j];
-            if(!std::isfinite(kind) || kind!=std::floor(kind))
+            if(!std::isfinite(kind) || kind!=std::floor(kind) || kind< -1.f || kind>1.f)
                 throw std::invalid_argument("nonintegral face shape code");
             auto& f=features[static_cast<std::size_t>(i)];
             f.kind=static_cast<int>(kind);
