@@ -362,15 +362,6 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         regionHeightSlider=profileSlider(drawer,"AREA HEIGHT",15,85,55) { "$it% of face" }
         regionOffsetUSlider=profileSlider(drawer,"LEFT / RIGHT POSITION",-80,80,0) { "$it%" }
         regionOffsetVSlider=profileSlider(drawer,"UP / DOWN POSITION",-80,80,0) { "$it%" }
-        for(slider in arrayOf(regionWidthSlider,regionHeightSlider,regionOffsetUSlider,regionOffsetVSlider)) {
-            slider.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(v:SeekBar?,progress:Int,fromUser:Boolean) {
-                    if(fromUser && ::faceOverlay.isInitialized) faceOverlay.invalidate()
-                }
-                override fun onStartTrackingTouch(v:SeekBar?) = Unit
-                override fun onStopTrackingTouch(v:SeekBar?) = Unit
-            })
-        }
         updateAreaButtons()
         val extrusionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         drawer.addView(extrusionRow)
@@ -432,6 +423,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(view: SeekBar?, progress: Int, fromUser: Boolean) {
                 caption.text = name + "  •  " + display(min + progress)
+                if(fromUser && ::faceOverlay.isInitialized) faceOverlay.invalidate()
             }
             override fun onStartTrackingTouch(view: SeekBar?) = Unit
             override fun onStopTrackingTouch(view: SeekBar?) = Unit
@@ -610,6 +602,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             saveWorkingShape()
         }
         syncShapeUi()
+        selectedFace?.let { syncRegionUi(it) }
     }
 
     private fun redoShape() {
@@ -622,6 +615,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             saveWorkingShape()
         }
         syncShapeUi()
+        selectedFace?.let { syncRegionUi(it) }
     }
 
     private fun saveWorkingShape() {
@@ -675,7 +669,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             faceSelectionText.text = if (shape == null) "Face selection unavailable for imported GLB"
                 else if (!faceMode) "Tap SELECT FACE to enable"
                 else if (face == null) "Tap any visible face on the box"
-                else "Selected: " + faceName(face) + " • positive = raised, negative = recessed"
+                else "Selected: " + faceName(face) + " • " +
+                    (shape.areas.count {it.kind>=0 && kotlin.math.abs(it.depth)>1e-6f}) +
+                    " edited face(s) • positive raised / negative recessed"
         }
         if (::extrudeApplyButton.isInitialized) extrudeApplyButton.isEnabled = faceMode && selectedFace != null
         if (::regionRectButton.isInitialized) regionRectButton.isEnabled=faceMode && selectedFace!=null
@@ -987,25 +983,41 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         arrayOf("FRONT", "REAR", "RIGHT", "LEFT", "TOP", "BOTTOM")
             .getOrElse(id) { "UNKNOWN" }
 
-    private fun faceQuadIndices(face: Int, shape: Shape, vertexCount: Int): IntArray? {
-        if(face !in 0..5) return null
-        val hasExtrusion=shape.extrudedFace in 0..5 &&
-            kotlin.math.abs(shape.extrusionDepth)>1e-6f
-        val base = if(hasExtrusion && shape.extrudedFace==face) {
-            vertexCount-6
-        } else if(hasExtrusion) {
-            ((0..5).filter { it != shape.extrudedFace }.indexOf(face))*6
-        } else face*6
-        if(base<0 || base+5>=vertexCount) return null
-        return intArrayOf(base,base+1,base+2,base+5)
+    private fun activeFaceVertices(f: FaceArea): Int =
+        if(f.kind<0 || kotlin.math.abs(f.depth)<1e-6f) 6
+        else if(f.kind==0) 54 else 390
+
+    private fun faceStart(face:Int, shape:Shape):Int {
+        var offset=0
+        for(i in 0 until face) offset+=activeFaceVertices(shape.areas[i])
+        return offset
     }
 
-    private fun faceForTriangle(index: Int, shape: Shape): Int {
-        val hasExtrusion=shape.extrudedFace in 0..5 &&
-            kotlin.math.abs(shape.extrusionDepth)>1e-6f
-        if(!hasExtrusion) return index/2
-        if(index>=10) return shape.extrudedFace
-        return (0..5).filter { it != shape.extrudedFace }[index/2]
+    private fun faceQuadIndices(face: Int, shape: Shape, vertexCount: Int): IntArray? {
+        if(face !in 0..5) return null
+        val start=faceStart(face,shape)
+        val f=shape.areas[face]
+        val count=activeFaceVertices(f)
+        if(start<0 || start+count>vertexCount) return null
+        return if(count==6) intArrayOf(start,start+1,start+2,start+5)
+        else {
+            val n=if(f.kind==0) 4 else 32
+            val capStart=start+if(n==4) 48 else 300
+            IntArray(n) { i -> when(i) {
+                0 -> capStart
+                1 -> capStart+1
+                else -> capStart+(i-2)*3+2
+            }}
+        }
+    }
+
+    private fun faceForTriangle(index:Int,shape:Shape):Int {
+        var triangleBase=0
+        for(i in 0..5) {
+            triangleBase+=activeFaceVertices(shape.areas[i])/3
+            if(index<triangleBase) return i
+        }
+        return 5
     }
 
     private fun pickFace(x: Float, y: Float): Int? {
@@ -1041,11 +1053,40 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         return value.coerceIn(-0.4f*dimension,2.0f*dimension)
     }
 
+    private fun updateAreaButtons() {
+        if(!::regionRectButton.isInitialized) return
+        regionRectButton.text=if(regionKind==0) "● RECTANGLE" else "▭ RECTANGLE"
+        regionOvalButton.text=if(regionKind==1) "● OVAL" else "◯ OVAL"
+    }
+
+    private fun syncRegionUi(face:Int) {
+        val shape=currentShape ?: return
+        if(face !in 0..5) return
+        val area=shape.areas[face]
+        regionKind=if(area.kind<0) 0 else area.kind
+        updateAreaButtons()
+        regionWidthSlider.progress=(area.width*100).toInt()-15
+        regionHeightSlider.progress=(area.height*100).toInt()-15
+        regionOffsetUSlider.progress=(area.offsetU*100).toInt()+80
+        regionOffsetVSlider.progress=(area.offsetV*100).toInt()+80
+        extrudeDepthField.setText(String.format(java.util.Locale.US,"%.2f",
+            if(area.kind<0) 0.25f else area.depth))
+        faceOverlay.invalidate()
+    }
+
+    private fun areaFromControls(depth:Float):FaceArea =
+        FaceArea(regionKind,
+            (regionWidthSlider.progress+15)/100f,
+            (regionHeightSlider.progress+15)/100f,
+            (regionOffsetUSlider.progress-80)/100f,
+            (regionOffsetVSlider.progress-80)/100f,
+            depth)
+
     private fun applyFaceInput() {
         val id=selectedFace ?: run { toast("Tap a box face before extruding."); return }
         val depth=extrudeDepthField.text.toString().toFloatOrNull()
         if(depth==null || !depth.isFinite()) {
-            toast("Enter an extrusion depth in metres, such as 0.25 or -0.15.")
+            toast("Enter depth in metres, such as 0.25 or -0.15.")
             return
         }
         applyFaceExtrusion(id,depth)
@@ -1054,43 +1095,62 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private fun nudgeFace(delta: Float) {
         val id=selectedFace ?: run { toast("Select a face first."); return }
         val shape=currentShape ?: return
-        val current=if(shape.extrudedFace==id) shape.extrusionDepth else 0f
-        applyFaceExtrusion(id,clampExtrusion(current+delta,shape))
+        val area=shape.areas[id]
+        applyFaceExtrusion(id,clampExtrusion((if(area.kind>=0) area.depth else 0f)+delta,shape))
     }
 
-    private fun applyFaceExtrusion(face: Int,depth: Float) {
+    private fun removeFaceEdit() {
+        val face=selectedFace ?: run { toast("Select a face to remove its edit.");return }
+        commitRegion(face,FaceArea())
+    }
+
+    private fun applyFaceExtrusion(face:Int,depth:Float) {
         val original=currentShape ?: return
         if(face !in 0..5 || !depth.isFinite()) return
         val safe=clampExtrusion(depth,original)
         if(kotlin.math.abs(safe-depth)>0.0001f) {
-            toast("Depth limited to safe range " +
-                (-0.4f*minOf(original.width,original.height,original.length)) +
-                " to " + (2f*minOf(original.width,original.height,original.length)) + " m")
+            toast("Depth outside safe range; try " +
+                String.format(java.util.Locale.US,"%.2f",safe) + " m")
             return
         }
-        val next=original.copy(extrudedFace=face,extrusionDepth=safe)
-        if(next==original) return
+        commitRegion(face,areaFromControls(safe))
+    }
+
+    private fun commitRegion(face:Int,area:FaceArea) {
+        val original=currentShape ?: return
+        if(face !in 0..5) return
+        if(original.areas[face]==area) return
+        val updated=original.areas.toMutableList()
+        updated[face]=area
+        val next=original.copy(areas=updated)
+        var committed=false
         try {
-            // Commit canonical shape before regenerating the viewport;
-            // reverse the native transaction if the preview cannot load.
-            NativeProject.setFaceExtrusion(face,safe)
+            NativeProject.setFaceRegion(face,area.kind,area.width,area.height,
+                area.offsetU,area.offsetV,area.depth)
+            committed=true
             if(!renderShape(next)) {
                 NativeProject.undo()
                 renderShape(original)
-                toast("Extrusion preview failed; original model restored.")
+                toast("Face preview failed; previous geometry restored.")
                 return
             }
             saveWorkingShape()
-            extrudeDepthField.setText(String.format(java.util.Locale.US,"%.2f",safe))
+            syncRegionUi(face)
             syncShapeUi()
-            status.text = faceName(face) + ": " +
-                String.format(java.util.Locale.US,"%+.2f m",safe) +
-                " • Undo/Redo supported"
-        } catch (error: Exception) {
-            Log.e("ModelForgeFace","Face extrusion failed",error)
-            // The native document validates before mutation; if an exception is
-            // thrown by JNI no edit was committed.
-            toast("Face edit rejected: " + (error.message ?: "invalid depth"))
+            status.text=faceName(face) +
+                if(area.kind<0) ": edit removed; other faces preserved"
+                else ": " + String.format(java.util.Locale.US,"%+.2f m",area.depth) +
+                     " • " + (if(area.kind==0)"rectangle" else "oval") +
+                     " • other faces preserved"
+        } catch(error:Exception) {
+            if(committed) {
+                try { NativeProject.undo(); renderShape(original) }
+                catch(rollback:Exception) {
+                    Log.e("ModelForgeFace","Rollback failed",rollback)
+                }
+            }
+            Log.e("ModelForgeFace","Region rejected",error)
+            toast("Area not applied: " + (error.message ?: "invalid geometry"))
         }
     }
 
@@ -1104,7 +1164,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 faceDragHandle=existing!=null && faceOverlay.hitPull(event.x,event.y)
                 if(faceDragHandle) {
                     val shape=currentShape ?: return false
-                    faceDragBase=if(shape.extrudedFace==existing) shape.extrusionDepth else 0f
+                    faceDragBase=shape.areas[existing].depth
                     faceDragPreview=faceDragBase
                     return true
                 }
@@ -1136,9 +1196,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     val face=selectedFace
                     if(face!=null) {
                         val shape=currentShape
-                        val amount=if(shape?.extrudedFace==face) shape.extrusionDepth else 0.25f
-                        extrudeDepthField.setText(String.format(java.util.Locale.US,"%.2f",amount))
-                        status.text=faceName(face) + " selected • drag white handle or enter metres"
+                        if(shape!=null) syncRegionUi(face)
+                        status.text=faceName(face) + " selected • choose area shape/size, then pull"
                     } else status.text="No face found • tap a solid visible surface"
                     syncShapeUi()
                 }
