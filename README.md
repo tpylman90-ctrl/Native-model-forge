@@ -62,6 +62,12 @@ Native generated boxes now retain separate rectangle/oval inset features on **ea
 
 This iteration still limits a face to one editable region, rather than stacking multiple cuts on the same face. Imported GLB geometry, arbitrary edge/vertex operations, circular geometry of fixed real-world radius, and a B-Rep kernel are future work. See [milestone 05](docs/FOUNDATION_MILESTONE_05.md).
 
+## v0.7 draw-and-curve on-model selection
+
+The face editor now has a **DRAW AREA** mode. Tap it and drag across a visible face to establish a region using your finger, much like drawing a marquee rectangle. Its four **cyan edge handles** bend the boundary into a freeform four-edge curved outline; the **PULL** handle extrudes or recesses that exact region. This is a real tessellated geometry operation in the native C++ mesh engine, not just a painted selection. Saved editable projects use `MFORGE_DOC 5` and still migrate v1–v4 drafts. The previous numeric area sliders, rectangle and oval presets, multi-face editing, native Undo/Redo, DEV signing, and GLB export remain available.
+
+The first drawing pass supports one four-sided region per original face, four independent curved sides and one signed extrusion depth. It does not yet support arbitrary freehand outlines, extra control points, multiple disconnected areas on a single face, CAD NURBS/B-Rep, or editing imported GLB topology. See [milestone 06](docs/FOUNDATION_MILESTONE_06.md).
+
 ## First real-user gate
 
 A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.
