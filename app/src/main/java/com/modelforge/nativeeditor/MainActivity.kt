@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PointF
 import android.os.Bundle
 import android.util.Log
@@ -67,6 +68,19 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private lateinit var lengthField: EditText
     private lateinit var orbitPad: OrbitPad
     private lateinit var shapeOverlay: DirectShapeOverlay
+    private lateinit var faceOverlay: FaceSelectionOverlay
+    private lateinit var faceButton: Button
+    private lateinit var extrudeDepthField: EditText
+    private lateinit var faceSelectionText: TextView
+    private lateinit var extrudeApplyButton: Button
+    private var faceMode = false
+    private var selectedFace: Int? = null
+    private var currentGeneratedMesh: FloatArray? = null
+    private var faceTouchStartX = 0f
+    private var faceTouchStartY = 0f
+    private var faceDragHandle = false
+    private var faceDragBase = 0f
+    private var faceDragPreview = 0f
     private lateinit var directShapeButton: Button
     private var directShapeMode = false
     private lateinit var cameraManipulator: Manipulator
@@ -76,7 +90,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     // The current editable primitive is independent of Filament render entities.
     private data class Shape(
         val width: Float, val height: Float, val length: Float,
-        val topWidth: Float = 1f, val topLength: Float = 1f, val shiftX: Float = 0f
+        val topWidth: Float = 1f, val topLength: Float = 1f, val shiftX: Float = 0f,
+        val extrudedFace: Int = -1, val extrusionDepth: Float = 0f
     )
     private var currentShape: Shape? = null
     // Native C++ Document owns object IDs, revisions, and in-session undo/redo.
@@ -157,7 +172,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             // Use Filament's tested one-finger orbit, two-finger pan and
             // pinch-to-zoom recognizer. All three update cameraManipulator.
             surface.setOnTouchListener { _, event ->
-                if (::viewer.isInitialized && !startupFailed) viewer.onTouchEvent(event)
+                if (::viewer.isInitialized && !startupFailed) {
+                    if (!faceMode || !handleFaceGesture(event)) viewer.onTouchEvent(event)
+                }
                 true
             }
             markStartup("loading_starter_glb")
@@ -253,6 +270,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             text = "Create • shape • share — foundation preview"
         }
         canvas.addView(status, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+        faceOverlay = FaceSelectionOverlay()
+        canvas.addView(faceOverlay, FrameLayout.LayoutParams(-1, -1))
+        faceOverlay.visibility = View.GONE
 
         // The overlay intercepts only touches on editing handles.
         // Every other gesture reaches the unchanged Filament manipulator.
@@ -299,6 +319,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         actionsRow.addView(button("APPLY SHAPE") { applyShape() })
         directShapeButton = button("◎ EDIT ON MODEL") { toggleDirectShape() }
         actionsRow.addView(directShapeButton)
+        faceButton = button("▣ SELECT FACE") { toggleFaceMode() }
+        actionsRow.addView(faceButton)
         undoButton = button("↶ UNDO") { undoShape() }
         redoButton = button("↷ REDO") { redoShape() }
         actionsRow.addView(undoButton)
@@ -311,7 +333,32 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         actionsRow.addView(button("ADVANCED • SOON") {
             toast("Top-surface shaping works now. Arbitrary face/edge editing is coming later.")
         })
+        drawer.addView(textLabel("FACE TOOLS • TAP A SURFACE, THEN EXTRUDE", 13f, accent))
+        faceSelectionText = textLabel("Face selection is off", 12f, muted)
+        drawer.addView(faceSelectionText)
+        val extrusionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        drawer.addView(extrusionRow)
+        extrudeDepthField = EditText(this).apply {
+            setSingleLine(true)
+            setText("0.25")
+            textSize = 18f
+            setTextColor(this@MainActivity.text)
+            inputType = InputType.TYPE_CLASS_NUMBER or
+                InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+            setBackgroundColor(Color.rgb(35,53,68))
+            setPadding(dp(12),dp(9),dp(10),dp(9))
+            contentDescription = "Extrusion depth in metres, negative for recess"
+        }
+        extrusionRow.addView(extrudeDepthField, LinearLayout.LayoutParams(0,dp(52),1f))
+        extrudeApplyButton = button("EXTRUDE m") { applyFaceInput() }
+        extrusionRow.addView(extrudeApplyButton)
+        val stepRow = LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        drawer.addView(stepRow)
+        stepRow.addView(button("− 0.10 m") { nudgeFace(-0.10f) })
+        stepRow.addView(button("+ 0.10 m") { nudgeFace(0.10f) })
+        drawer.addView(textLabel("One inset face feature per generated box. Negative = recess.", 11f, muted))
         drawer.addView(textLabel("Offline-first • GLB export • Community sharing planned, not active", 11f, muted))
+        syncShapeUi()
     }
 
     private fun dimensionField(parent: LinearLayout, name: String, initial: String): EditText {
@@ -380,16 +427,32 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             return
         }
         directShapeMode = !directShapeMode
+        if (directShapeMode) { faceMode = false; selectedFace = null }
         syncShapeUi()
         status.text = if (directShapeMode)
             "EDIT TOP: drag LEAN / WIDTH / LENGTH handles • lift finger to apply"
         else "View mode: drag to orbit • right joystick • pinch to zoom"
     }
 
+    private fun toggleFaceMode() {
+        if (currentShape == null) {
+            toast("Face selection works only on editable generated boxes.")
+            return
+        }
+        faceMode = !faceMode
+        if (faceMode) directShapeMode = false
+        selectedFace = null
+        syncShapeUi()
+        status.text = if (faceMode) "FACE MODE: tap a face, then drag the white circle or enter metres"
+                      else "Face mode off • orbit normally"
+    }
+
     private fun setDrawerVisible(opened: Boolean) {
         drawer.visibility = if (opened) View.VISIBLE else View.GONE
         drawerToggle.text = if (opened) "▼ HIDE TOOLS" else "▲ OPEN TOOLS"
-        status.text = if (directShapeMode)
+        status.text = if (faceMode)
+            "FACE MODE: tap surface • drag selected circle • or enter metres"
+        else if (directShapeMode)
             "EDIT TOP: drag colored handles • other gestures still orbit"
         else if (opened) "Right joystick: orbit • pinch: zoom • drag: rotate"
         else "Full view • ▲ OPEN TOOLS to continue modeling"
@@ -416,24 +479,31 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun renderShape(shape: Shape): Boolean {
-        val bytes = GlbBuilder.profiledBox(
+        val mesh = NativeGeometry.generateFaceExtrudedBox(
             shape.width, shape.height, shape.length,
-            shape.topWidth, shape.topLength, shape.shiftX
+            shape.topWidth, shape.topLength, shape.shiftX,
+            shape.extrudedFace, shape.extrusionDepth
         )
-        return present(bytes, "Solid " + shape.width + " × " + shape.height + " × " + shape.length,
+        val bytes = GlbBuilder.fromPacked(mesh)
+        val ok = present(bytes, "Solid " + shape.width + " × " + shape.height + " × " + shape.length,
             false, shape)
+        if (ok) {
+            currentGeneratedMesh = mesh
+            if (::faceOverlay.isInitialized) faceOverlay.invalidate()
+        }
+        return ok
     }
 
     private fun applyShape() {
         val previous = currentShape ?: run { toast("Create a box before shaping."); return }
         try {
-            val next = Shape(
-                widthField.text.toString().toFloat(),
-                heightField.text.toString().toFloat(),
-                lengthField.text.toString().toFloat(),
-                (topWidthSlider.progress + 35) / 100f,
-                (topLengthSlider.progress + 35) / 100f,
-                (shiftSlider.progress - 40) / 100f
+            val next = previous.copy(
+                width = widthField.text.toString().toFloat(),
+                height = heightField.text.toString().toFloat(),
+                length = lengthField.text.toString().toFloat(),
+                topWidth = (topWidthSlider.progress + 35) / 100f,
+                topLength = (topLengthSlider.progress + 35) / 100f,
+                shiftX = (shiftSlider.progress - 40) / 100f
             )
             if (next == previous) { toast("Shape is already up to date."); return }
             commitDirectShape(next)
@@ -465,9 +535,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun fromNative(): Shape? {
         val values = NativeProject.currentShape() ?: return null
-        if (values.size != 6) return null
+        if (values.size != 8) return null
         return Shape(values[0], values[1], values[2],
-            values[3], values[4], values[5])
+            values[3], values[4], values[5], values[6].toInt(), values[7])
     }
 
     private fun undoShape() {
@@ -531,7 +601,23 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         topWidthSlider.isEnabled = shape != null
         topLengthSlider.isEnabled = shape != null
         shiftSlider.isEnabled = shape != null
-        if (shape == null) directShapeMode = false
+        if (shape == null) { directShapeMode = false; faceMode = false; selectedFace = null }
+        if (::faceButton.isInitialized) {
+            faceButton.isEnabled = shape != null
+            faceButton.text = if (faceMode) "● FACE MODE ON" else "▣ SELECT FACE"
+        }
+        if (::faceOverlay.isInitialized) {
+            faceOverlay.visibility = if (faceMode) View.VISIBLE else View.GONE
+            faceOverlay.invalidate()
+        }
+        if (::faceSelectionText.isInitialized) {
+            val face = selectedFace
+            faceSelectionText.text = if (shape == null) "Face selection unavailable for imported GLB"
+                else if (!faceMode) "Tap SELECT FACE to enable"
+                else if (face == null) "Tap any visible face on the box"
+                else "Selected: " + faceName(face) + " • positive = raised, negative = recessed"
+        }
+        if (::extrudeApplyButton.isInitialized) extrudeApplyButton.isEnabled = faceMode && selectedFace != null
         if (::directShapeButton.isInitialized) {
             directShapeButton.isEnabled = shape != null
             directShapeButton.text = if (directShapeMode) "● TOP EDIT ON" else "◎ EDIT ON MODEL"
@@ -567,6 +653,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             viewer.loadModelGlb(buffer)
             viewer.transformToUnitCube(Float3(0f, 0f, 0f))
             currentGlb = bytes
+            if (imported) currentGeneratedMesh = null
             currentName = name
             importedPreview = imported
             currentShape = shape
@@ -575,6 +662,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 cameraManipulator.jumpToBookmark(cameraManipulator.homeBookmark)
             }
             status.text = if (imported) "GLB preview: " + name + " • Import editing coming later"
+                          else if (faceMode) "FACE MODE: tap a surface to select"
                           else if (directShapeMode) "TOP EDIT: drag handles • lift to apply"
                           else name + " • Native shaped solid • PBR viewport"
             return true
@@ -657,6 +745,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             }
             viewer.render(frameTimeNanos)
             if (directShapeMode) shapeOverlay.invalidate()
+            if (faceMode) faceOverlay.invalidate()
             if (!firstFrameCompleted && surface.width > 0 && surface.height > 0) {
                 completeStartup()
             }
@@ -731,8 +820,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 "CREATE: Enter width, height and length, then tap CREATE BOX.\n\n" +
                 "SHAPE: Adjust top width, top length and sideways lean, then tap APPLY SHAPE. Or tap EDIT ON MODEL, hide tools and drag the three TOP handles. Undo/Redo uses the native document during this session. Your last editable shape is restored after relaunch.\n\n" +
                 "VIEW: Drag the model or use the right joystick to orbit. Pinch to zoom; two fingers pan. FIT VIEW resets the camera; TURN VIEW tests orbit. ▼ HIDE TOOLS expands the screen.\n\n" +
+                "FACE EDIT: SELECT FACE, tap a visible face to highlight it, then drag its centre circle or enter a signed depth in metres and press EXTRUDE. Negative values make a recess. One extrusion per generated box; selecting another face replaces it.\n\n" +
                 "SAVE GLB: Keep the real mesh on your phone. OPEN GLB: Preview existing models.\n\n" +
-                "NEXT: Direct face/edge editing, bevel, extrusion and saved project history. Imported GLBs remain preview-only."
+                "NEXT: Multi-face editing, edge beveling and arbitrary imported mesh topology. Imported GLBs remain preview-only."
             ).setPositiveButton("GOT IT", null).show()
     }
 
@@ -750,6 +840,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         Choreographer.getInstance().removeFrameCallback(this)
         if (::orbitPad.isInitialized) { orbitPad.dx = 0f; orbitPad.dy = 0f }
         if (::shapeOverlay.isInitialized) shapeOverlay.cancelGesture()
+        faceDragHandle = false
         if (::cameraManipulator.isInitialized) cameraManipulator.grabEnd()
         joystickFractionX = 0f; joystickFractionY = 0f
         super.onPause()
