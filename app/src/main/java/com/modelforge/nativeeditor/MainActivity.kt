@@ -518,10 +518,16 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private fun commitDirectShape(next: Shape): Boolean {
         if (currentShape == null) return false
         if (next == currentShape) return true
+        val original = currentShape ?: return false
         return try {
-            if (!renderShape(next)) return false
             NativeProject.reshape(next.width, next.height, next.length,
                 next.topWidth, next.topLength, next.shiftX)
+            if (!renderShape(next)) {
+                NativeProject.undo()
+                renderShape(original)
+                toast("Shape preview failed; previous edit restored.")
+                return false
+            }
             saveWorkingShape()
             syncShapeUi()
             if (directShapeMode) status.text =
@@ -1197,14 +1203,22 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             val shift = shape.shiftX.toDouble() * w
             val tw = shape.topWidth.toDouble()
             val tl = shape.topLength.toDouble()
-            val minX = minOf(-w / 2.0, shift - w * tw / 2.0)
-            val maxX = maxOf(w / 2.0, shift + w * tw / 2.0)
-            val minZ = minOf(-l / 2.0, -l * tl / 2.0)
-            val maxZ = maxOf(l / 2.0, l * tl / 2.0)
-            val scale = 2.0 / maxOf(maxX - minX, h, maxZ - minZ)
-            val centerX = (minX + maxX) / 2.0
-            val centerZ = (minZ + maxZ) / 2.0
-            val topY = (h / 2.0) * scale
+            // Use current exported mesh bounds, including any extrusion,
+            // to match ModelViewer.transformToUnitCube exactly.
+            val packed = currentGeneratedMesh ?: return emptyList()
+            val lo=DoubleArray(3) { Double.POSITIVE_INFINITY }
+            val hi=DoubleArray(3) { Double.NEGATIVE_INFINITY }
+            for(i in packed.indices step 6) {
+                for(axis in 0..2) {
+                    lo[axis]=kotlin.math.min(lo[axis],packed[i+axis].toDouble())
+                    hi[axis]=kotlin.math.max(hi[axis],packed[i+axis].toDouble())
+                }
+            }
+            val scale=2.0/maxOf(hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2])
+            val centerX=(lo[0]+hi[0])*0.5
+            val centerY=(lo[1]+hi[1])*0.5
+            val centerZ=(lo[2]+hi[2])*0.5
+            val topY=(h/2.0-centerY)*scale
             // Hide the top-face handles if the camera is below its plane.
             val camera = viewer.camera
             if (camera.getPosition(null)[1] <= topY + 0.015) return emptyList()
