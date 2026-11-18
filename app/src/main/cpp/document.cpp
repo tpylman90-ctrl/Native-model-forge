@@ -32,6 +32,15 @@ void Document::validate(const ModelObject& obj) {
     reject(!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2]) ||
            p[0] < 0.35 || p[0] > 1.75 || p[1] < 0.35 || p[1] > 1.75 ||
            p[2] < -0.4 || p[2] > 0.4, "invalid top surface profile");
+    reject(obj.extrusionFace < -1 || obj.extrusionFace > 5 ||
+           !std::isfinite(obj.extrusionDepthMetres), "invalid face extrusion data");
+    const double minDim=std::min(obj.sizeMetres[0],
+        std::min(obj.sizeMetres[1],obj.sizeMetres[2]));
+    reject((obj.extrusionFace==-1 && obj.extrusionDepthMetres!=0.0) ||
+           (obj.extrusionFace!=-1 && (obj.extrusionDepthMetres < -0.4*minDim ||
+                obj.extrusionDepthMetres > 2.0*minDim)), "face extrusion depth outside safe range");
+    reject(obj.kind==GeometryKind::CadBrep && obj.extrusionFace!=-1,
+           "mesh face extrusion cannot modify CAD references");
 }
 void Document::commit(std::vector<ModelObject> next) {
     if (undo_.size() == maxHistory) undo_.erase(undo_.begin());
@@ -77,6 +86,21 @@ void Document::reshape(std::uint64_t objectId, std::array<double,3> size,
     validate(*match);
     commit(std::move(next));
 }
+void Document::setFaceExtrusion(std::uint64_t objectId, int faceId,
+                                double depth, std::uint64_t expected) {
+    assertRevision(expected);
+    auto next=objects_;
+    auto match=std::find_if(next.begin(),next.end(),
+        [&](const ModelObject& o){return o.id==objectId;});
+    reject(match==next.end(),"unknown object ID");
+    reject(match->kind!=GeometryKind::PolygonMesh ||
+           match->sourceReference!="generated:profiled_box",
+           "face editing requires a generated editable box");
+    match->extrusionFace=faceId;
+    match->extrusionDepthMetres=depth;
+    validate(*match);
+    commit(std::move(next));
+}
 void Document::rename(std::uint64_t objectId, std::string name,
                       std::uint64_t expected) {
     assertRevision(expected);
@@ -113,13 +137,14 @@ bool Document::redo() {
 }
 std::string Document::serialize() const {
     std::ostringstream stream;
-    stream << "MFORGE_DOC 2\n" << revision_ << ' ' << nextId_ << ' ' << objects_.size() << '\n'
+    stream << "MFORGE_DOC 3\n" << revision_ << ' ' << nextId_ << ' ' << objects_.size() << '\n'
            << std::setprecision(17);
     for (const ModelObject& obj : objects_) {
         stream << obj.id << ' ' << static_cast<int>(obj.kind) << ' '
                << std::quoted(obj.name) << ' ' << std::quoted(obj.sourceReference);
         for (double size : obj.sizeMetres) stream << ' ' << size;
         for (double parameter : obj.topProfile) stream << ' ' << parameter;
+        stream << ' ' << obj.extrusionFace << ' ' << obj.extrusionDepthMetres;
         stream << '\n';
     }
     return stream.str();
@@ -129,7 +154,7 @@ Document Document::parse(const std::string& data) {
     std::istringstream stream(data);
     std::string magic;
     int version=0;
-    reject(!(stream>>magic>>version) || magic!="MFORGE_DOC" || (version!=1 && version!=2),
+    reject(!(stream>>magic>>version) || magic!="MFORGE_DOC" || (version!=1 && version!=2 && version!=3),
            "unsupported document header");
     Document result;
     std::size_t count=0;
@@ -144,9 +169,13 @@ Document Document::parse(const std::string& data) {
                      std::quoted(obj.sourceReference)>>
                      obj.sizeMetres[0]>>obj.sizeMetres[1]>>obj.sizeMetres[2]),
                "truncated or corrupt project");
-        if (version==2) {
+        if (version>=2) {
             reject(!(stream>>obj.topProfile[0]>>obj.topProfile[1]>>obj.topProfile[2]),
                    "missing or corrupt surface profile");
+        }
+        if (version>=3) {
+            reject(!(stream>>obj.extrusionFace>>obj.extrusionDepthMetres),
+                   "missing or corrupt face extrusion");
         }
         obj.kind=static_cast<GeometryKind>(rawKind);
         validate(obj);

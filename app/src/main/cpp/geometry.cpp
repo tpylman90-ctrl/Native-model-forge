@@ -70,3 +70,61 @@ std::vector<Vertex> profiledBox(float w,float h,float l,float topW,float topL,fl
     return out;
 }
 }
+
+namespace forge {
+std::vector<Vertex> faceExtrudedBox(float w,float h,float l,
+    float tw,float tl,float shift,int faceIndex,float depth) {
+    const auto base = profiledBox(w,h,l,tw,tl,shift);
+    if(faceIndex == -1 && depth == 0.f) return base;
+    if(faceIndex < 0 || faceIndex > 5 || !std::isfinite(depth))
+        throw std::invalid_argument("extrusion requires a valid face and finite depth");
+    const float minDimension = std::fmin(w, std::fmin(h,l));
+    if(depth < -0.40f * minDimension ||
+       depth > 2.f * minDimension)
+        throw std::invalid_argument("extrusion depth exceeds safe model bounds");
+    if(std::fabs(depth) < 1e-6f) return base;
+    // Preserve adjacent faces. Replace only the selected face with an inset
+    // border, four joining walls, and a translated cap. This also produces
+    // a proper recessed pocket for negative depths rather than overlapping
+    // coplanar neighbor faces.
+    std::vector<Vertex> result;
+    result.reserve(84);
+    for(int faceId=0;faceId<6;++faceId) {
+        if(faceId == faceIndex) continue;
+        const std::size_t start = static_cast<std::size_t>(faceId) * 6;
+        result.insert(result.end(),base.begin()+start,base.begin()+start+6);
+    }
+    using Point = std::array<float,3>;
+    const std::size_t start=static_cast<std::size_t>(faceIndex)*6;
+    const std::array<int,4> corners{{0,1,2,5}};
+    std::array<Point,4> outer;
+    Point center{{0.f,0.f,0.f}};
+    for(int i=0;i<4;++i) {
+        const Vertex& v=base[start+static_cast<std::size_t>(corners[i])];
+        outer[i]={{v.px,v.py,v.pz}};
+        for(int c=0;c<3;++c)center[c]+=outer[i][c]*0.25f;
+    }
+    const Vertex& normal=base[start];
+    const Point n{{normal.nx,normal.ny,normal.nz}};
+    std::array<Point,4> inset,cap;
+    for(int i=0;i<4;++i) {
+        for(int c=0;c<3;++c) {
+            // A deliberate inset prevents a full-face recess from coinciding
+            // with and degenerating the original neighboring boundaries.
+            inset[i][c]=center[c]+0.82f*(outer[i][c]-center[c]);
+            cap[i][c]=inset[i][c]+n[c]*depth;
+        }
+    }
+    for(int i=0;i<4;++i) {
+        const int j=(i+1)%4;
+        profileQuad(result,outer[i],outer[j],inset[j],inset[i]);
+    }
+    for(int i=0;i<4;++i) {
+        const int j=(i+1)%4;
+        profileQuad(result,inset[i],inset[j],cap[j],cap[i]);
+    }
+    profileQuad(result,cap[0],cap[1],cap[2],cap[3]);
+    if(result.size()!=84u) throw std::runtime_error("extrusion topology error");
+    return result;
+}
+}

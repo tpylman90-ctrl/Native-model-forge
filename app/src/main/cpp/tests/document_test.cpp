@@ -67,5 +67,27 @@ int main() {
     try {forge::Document::parse("MFORGE_DOC 999\n");}
     catch(const std::invalid_argument&) {rejected=true;}
     assert(rejected);
+    forge::Document extrudeDoc;
+    const auto shape=extrudeDoc.insert(GeometryKind::PolygonMesh, "Extruded",
+        "generated:profiled_box", {2.,1.,3.},extrudeDoc.revision());
+    extrudeDoc.clearHistory();
+    extrudeDoc.setFaceExtrusion(shape,4,0.3,extrudeDoc.revision());
+    assert(extrudeDoc.objects()[0].extrusionFace==4);
+    assert(extrudeDoc.objects()[0].extrusionDepthMetres==0.3);
+    const std::string extruded=extrudeDoc.serialize();
+    assert(extruded.find("MFORGE_DOC 3") == 0);
+    auto restored=forge::Document::parse(extruded);
+    assert(restored.serialize()==extruded);
+    bool badExtrude=false;
+    try {extrudeDoc.setFaceExtrusion(shape,2,-0.8,extrudeDoc.revision());}
+    catch(const std::invalid_argument&) {badExtrude=true;}
+    assert(badExtrude && extrudeDoc.serialize()==extruded);
+    assert(extrudeDoc.undo() && extrudeDoc.objects()[0].extrusionFace==-1);
+    assert(extrudeDoc.redo() && extrudeDoc.objects()[0].extrusionFace==4);
+    extrudeDoc.setFaceExtrusion(shape,4,-0.2,extrudeDoc.revision());
+    assert(extrudeDoc.objects()[0].extrusionDepthMetres==-0.2);
+    const auto legacyV2=forge::Document::parse(
+        "MFORGE_DOC 2\n1 2 1\n1 1 \"Legacy\" \"generated:profiled_box\" 2 1 3 1 1 0\n");
+    assert(legacyV2.objects()[0].extrusionFace==-1);
     std::cout<<"MODEL_FORGE_DOCUMENT: PASS revision guard, stable IDs, hybrid kinds, rollback, save/load, undo/redo\n";
 }

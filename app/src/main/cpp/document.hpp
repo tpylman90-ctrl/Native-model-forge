@@ -15,6 +15,9 @@ struct ModelObject {
     std::array<double, 3> sizeMetres{{1.0, 1.0, 1.0}};
     // Native project parameters are canonical; display triangles are disposable.
     std::array<double, 3> topProfile{{1.0, 1.0, 0.0}};
+    // Single-feature face extrusion for the v0.5 generated-box workflow.
+    int extrusionFace = -1; // -1 means no extrusion, 0..5 are semantic faces
+    double extrusionDepthMetres = 0.0;
 };
 
 // Host-testable, renderer-independent document. No Android or OCCT headers.
@@ -31,6 +34,8 @@ public:
                 std::uint64_t expectedRevision);
     void reshape(std::uint64_t objectId, std::array<double,3> sizeMetres,
                  std::array<double,3> topProfile, std::uint64_t expectedRevision);
+    void setFaceExtrusion(std::uint64_t objectId, int faceId, double depthMetres,
+                          std::uint64_t expectedRevision);
     void rename(std::uint64_t objectId, std::string name,
                 std::uint64_t expectedRevision);
     void erase(std::uint64_t objectId, std::uint64_t expectedRevision);

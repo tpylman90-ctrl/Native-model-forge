@@ -47,6 +47,14 @@ Java_com_modelforge_nativeeditor_NativeProject_reshape(
         document.reshape(boxId(),sizes(w,h,l),profile(tw,tl,shift),document.revision());
     } catch(const std::exception& error) { javaError(env,error); }
 }
+extern "C" JNIEXPORT void JNICALL
+Java_com_modelforge_nativeeditor_NativeProject_setFaceExtrusion(
+    JNIEnv* env,jobject,jint faceIndex,jfloat depth) {
+    std::lock_guard<std::mutex> guard(projectMutex);
+    try {
+        document.setFaceExtrusion(boxId(),faceIndex,depth,document.revision());
+    } catch(const std::exception& error) { javaError(env,error); }
+}
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_modelforge_nativeeditor_NativeProject_undo(JNIEnv*,jobject) {
     std::lock_guard<std::mutex> guard(projectMutex);
@@ -75,16 +83,18 @@ Java_com_modelforge_nativeeditor_NativeProject_currentShape(JNIEnv* env,jobject)
        document.objects()[0].kind!=forge::GeometryKind::PolygonMesh)
         return nullptr;
     const auto& obj=document.objects()[0];
-    jfloat values[6] = {
+    jfloat values[8] = {
         static_cast<jfloat>(obj.sizeMetres[0]),
         static_cast<jfloat>(obj.sizeMetres[1]),
         static_cast<jfloat>(obj.sizeMetres[2]),
         static_cast<jfloat>(obj.topProfile[0]),
         static_cast<jfloat>(obj.topProfile[1]),
-        static_cast<jfloat>(obj.topProfile[2])
+        static_cast<jfloat>(obj.topProfile[2]),
+        static_cast<jfloat>(obj.extrusionFace),
+        static_cast<jfloat>(obj.extrusionDepthMetres)
     };
-    jfloatArray arr=env->NewFloatArray(6);
-    if(arr) env->SetFloatArrayRegion(arr,0,6,values);
+    jfloatArray arr=env->NewFloatArray(8);
+    if(arr) env->SetFloatArrayRegion(arr,0,8,values);
     return arr;
 }
 extern "C" JNIEXPORT jstring JNICALL
