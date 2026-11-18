@@ -856,6 +856,291 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     // First on-model direct manipulation: a generated box's top surface only.
     // These are screen-projected geometry handles, not arbitrary GLB picking.
+
+    // Geometric face picking uses the exact vertices used to build the GLB.
+    // No fabricated UI coordinates, no imported GLB editing, and no GPU readback.
+    private data class ScreenPoint(val x: Float, val y: Float, val distance: Double)
+
+    private inner class MeshProjector(private val packed: FloatArray) {
+        private val view = viewer.camera.getViewMatrix(DoubleArray(16))
+        private val projection = viewer.camera.getProjectionMatrix(null)
+        private val center: DoubleArray
+        private val scale: Double
+
+        init {
+            val min = DoubleArray(3) { Double.POSITIVE_INFINITY }
+            val max = DoubleArray(3) { Double.NEGATIVE_INFINITY }
+            for(i in packed.indices step 6) {
+                for(axis in 0..2) {
+                    val v=packed[i+axis].toDouble()
+                    min[axis] = kotlin.math.min(min[axis],v)
+                    max[axis] = kotlin.math.max(max[axis],v)
+                }
+            }
+            center = DoubleArray(3) { (min[it]+max[it])*0.5 }
+            scale = 2.0 / maxOf(max[0]-min[0],max[1]-min[1],max[2]-min[2])
+        }
+
+        fun at(vertex: Int): ScreenPoint? {
+            val i=vertex*6
+            if(i<0 || i+2>=packed.size) return null
+            val x=(packed[i].toDouble()-center[0])*scale
+            val y=(packed[i+1].toDouble()-center[1])*scale
+            val z=(packed[i+2].toDouble()-center[2])*scale
+            fun mul(m: DoubleArray, a: Double, b: Double, c: Double, d: Double): DoubleArray =
+                DoubleArray(4) { j ->
+                    m[j]*a + m[j+4]*b + m[j+8]*c + m[j+12]*d
+                }
+            val eye=mul(view,x,y,z,1.0)
+            if(!eye[2].isFinite() || eye[2]>=-0.01) return null
+            val clip=mul(projection,eye[0],eye[1],eye[2],eye[3])
+            if(clip[3] <= 1e-6 || !clip[3].isFinite()) return null
+            val nx=clip[0]/clip[3]
+            val ny=clip[1]/clip[3]
+            if(!nx.isFinite() || !ny.isFinite() ||
+                kotlin.math.abs(nx)>4.0 || kotlin.math.abs(ny)>4.0) return null
+            return ScreenPoint(((nx+1.0)*surface.width*0.5).toFloat(),
+                ((1.0-ny)*surface.height*0.5).toFloat(),-eye[2])
+        }
+
+        fun visibleFace(face: Int, shape: Shape): Boolean {
+            val quad=faceQuadIndices(face,shape,packed.size/6) ?: return false
+            val first=quad[0]*6
+            val px=(packed[first].toDouble()-center[0])*scale
+            val py=(packed[first+1].toDouble()-center[1])*scale
+            val pz=(packed[first+2].toDouble()-center[2])*scale
+            val camera=viewer.camera.getPosition(null)
+            val dot=packed[first+3]*(camera[0]-px).toFloat() +
+                packed[first+4]*(camera[1]-py).toFloat() +
+                packed[first+5]*(camera[2]-pz).toFloat()
+            return dot>0f
+        }
+    }
+
+    private fun faceName(id: Int): String =
+        arrayOf("FRONT", "REAR", "RIGHT", "LEFT", "TOP", "BOTTOM")
+            .getOrElse(id) { "UNKNOWN" }
+
+    private fun faceQuadIndices(face: Int, shape: Shape, vertexCount: Int): IntArray? {
+        if(face !in 0..5) return null
+        val hasExtrusion=shape.extrudedFace in 0..5 &&
+            kotlin.math.abs(shape.extrusionDepth)>1e-6f
+        val base = if(hasExtrusion && shape.extrudedFace==face) {
+            vertexCount-6
+        } else if(hasExtrusion) {
+            ((0..5).filter { it != shape.extrudedFace }.indexOf(face))*6
+        } else face*6
+        if(base<0 || base+5>=vertexCount) return null
+        return intArrayOf(base,base+1,base+2,base+5)
+    }
+
+    private fun faceForTriangle(index: Int, shape: Shape): Int {
+        val hasExtrusion=shape.extrudedFace in 0..5 &&
+            kotlin.math.abs(shape.extrusionDepth)>1e-6f
+        if(!hasExtrusion) return index/2
+        if(index>=10) return shape.extrudedFace
+        return (0..5).filter { it != shape.extrudedFace }[index/2]
+    }
+
+    private fun pickFace(x: Float, y: Float): Int? {
+        val shape=currentShape ?: return null
+        val packed=currentGeneratedMesh ?: return null
+        if(!::viewer.isInitialized || !faceMode) return null
+        val mapper=MeshProjector(packed)
+        var nearest=Double.POSITIVE_INFINITY
+        var result: Int? = null
+        for(t in 0 until packed.size/18) {
+            val face=faceForTriangle(t,shape)
+            if(!mapper.visibleFace(face,shape)) continue
+            val a=mapper.at(t*3) ?: continue
+            val b=mapper.at(t*3+1) ?: continue
+            val c=mapper.at(t*3+2) ?: continue
+            val d=(b.y-c.y)*(a.x-c.x)+(c.x-b.x)*(a.y-c.y)
+            if(kotlin.math.abs(d)<0.001f) continue
+            val u=((b.y-c.y)*(x-c.x)+(c.x-b.x)*(y-c.y))/d
+            val v=((c.y-a.y)*(x-c.x)+(a.x-c.x)*(y-c.y))/d
+            val w=1f-u-v
+            if(u < -0.001f || v < -0.001f || w < -0.001f) continue
+            val distance=u*a.distance+v*b.distance+w*c.distance
+            if(distance < nearest) {
+                nearest=distance
+                result=face
+            }
+        }
+        return result
+    }
+
+    private fun clampExtrusion(value: Float, shape: Shape): Float {
+        val dimension=minOf(shape.width,shape.height,shape.length)
+        return value.coerceIn(-0.4f*dimension,2.0f*dimension)
+    }
+
+    private fun applyFaceInput() {
+        val id=selectedFace ?: run { toast("Tap a box face before extruding."); return }
+        val depth=extrudeDepthField.text.toString().toFloatOrNull()
+        if(depth==null || !depth.isFinite()) {
+            toast("Enter an extrusion depth in metres, such as 0.25 or -0.15.")
+            return
+        }
+        applyFaceExtrusion(id,depth)
+    }
+
+    private fun nudgeFace(delta: Float) {
+        val id=selectedFace ?: run { toast("Select a face first."); return }
+        val shape=currentShape ?: return
+        val current=if(shape.extrudedFace==id) shape.extrusionDepth else 0f
+        applyFaceExtrusion(id,clampExtrusion(current+delta,shape))
+    }
+
+    private fun applyFaceExtrusion(face: Int,depth: Float) {
+        val original=currentShape ?: return
+        if(face !in 0..5 || !depth.isFinite()) return
+        val safe=clampExtrusion(depth,original)
+        if(kotlin.math.abs(safe-depth)>0.0001f) {
+            toast("Depth limited to safe range " +
+                (-0.4f*minOf(original.width,original.height,original.length)) +
+                " to " + (2f*minOf(original.width,original.height,original.length)) + " m")
+            return
+        }
+        val next=original.copy(extrudedFace=face,extrusionDepth=safe)
+        if(next==original) return
+        try {
+            // Commit canonical shape before regenerating the viewport;
+            // reverse the native transaction if the preview cannot load.
+            NativeProject.setFaceExtrusion(face,safe)
+            if(!renderShape(next)) {
+                NativeProject.undo()
+                renderShape(original)
+                toast("Extrusion preview failed; original model restored.")
+                return
+            }
+            saveWorkingShape()
+            extrudeDepthField.setText(String.format(java.util.Locale.US,"%.2f",safe))
+            syncShapeUi()
+            status.text = faceName(face) + ": " +
+                String.format(java.util.Locale.US,"%+.2f m",safe) +
+                " • Undo/Redo supported"
+        } catch (error: Exception) {
+            Log.e("ModelForgeFace","Face extrusion failed",error)
+            // The native document validates before mutation; if an exception is
+            // thrown by JNI no edit was committed.
+            toast("Face edit rejected: " + (error.message ?: "invalid depth"))
+        }
+    }
+
+    private fun handleFaceGesture(event: MotionEvent): Boolean {
+        if(!faceMode || currentShape==null || !::faceOverlay.isInitialized) return false
+        when(event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                faceTouchStartX=event.x
+                faceTouchStartY=event.y
+                val existing=selectedFace
+                faceDragHandle=existing!=null && faceOverlay.hitPull(event.x,event.y)
+                if(faceDragHandle) {
+                    val shape=currentShape ?: return false
+                    faceDragBase=if(shape.extrudedFace==existing) shape.extrusionDepth else 0f
+                    faceDragPreview=faceDragBase
+                    return true
+                }
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if(!faceDragHandle) return false
+                val shape=currentShape ?: return true
+                val dy=faceTouchStartY-event.y
+                val dimension=minOf(shape.width,shape.height,shape.length)
+                faceDragPreview=clampExtrusion(faceDragBase +
+                    (dy/dp(170).toFloat())*(dimension*0.8f),shape)
+                status.text="EXTRUDE " + faceName(selectedFace ?: -1) + "  " +
+                    String.format(java.util.Locale.US,"%+.2f m",faceDragPreview) +
+                    " • release to apply"
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                if(faceDragHandle) {
+                    faceDragHandle=false
+                    val id=selectedFace
+                    if(id!=null) applyFaceExtrusion(id,faceDragPreview)
+                    return true
+                }
+                val dx=event.x-faceTouchStartX
+                val dy=event.y-faceTouchStartY
+                if(event.pointerCount==1 && dx*dx+dy*dy<=dp(14)*dp(14)) {
+                    selectedFace=pickFace(event.x,event.y)
+                    val face=selectedFace
+                    if(face!=null) {
+                        val shape=currentShape
+                        val amount=if(shape?.extrudedFace==face) shape.extrusionDepth else 0.25f
+                        extrudeDepthField.setText(String.format(java.util.Locale.US,"%.2f",amount))
+                        status.text=faceName(face) + " selected • drag white handle or enter metres"
+                    } else status.text="No face found • tap a solid visible surface"
+                    syncShapeUi()
+                }
+                return false // Forward UP to Filament to release camera gestures
+            }
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> {
+                val captured=faceDragHandle
+                faceDragHandle=false
+                return captured
+            }
+            else -> return faceDragHandle
+        }
+    }
+
+    private inner class FaceSelectionOverlay : View(this@MainActivity) {
+        private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
+        private fun selectedPoints(): List<ScreenPoint>? {
+            if(!faceMode) return null
+            val shape=currentShape ?: return null
+            val id=selectedFace ?: return null
+            val packed=currentGeneratedMesh ?: return null
+            if(!::viewer.isInitialized) return null
+            val mapper=MeshProjector(packed)
+            if(!mapper.visibleFace(id,shape)) return null
+            val corners=faceQuadIndices(id,shape,packed.size/6) ?: return null
+            return corners.map { mapper.at(it) ?: return null }
+        }
+        private fun center(): PointF? {
+            val p=selectedPoints() ?: return null
+            return PointF(p.map { it.x }.average().toFloat(),
+                p.map { it.y }.average().toFloat())
+        }
+        fun hitPull(x: Float,y: Float): Boolean {
+            val p=center() ?: return false
+            val dx=x-p.x
+            val dy=y-p.y
+            return dx*dx+dy*dy<dp(44).toFloat()*dp(44)
+        }
+        override fun onDraw(canvas: Canvas) {
+            val p=selectedPoints() ?: return
+            val path=Path().apply {
+                moveTo(p[0].x,p[0].y)
+                for(i in 1..3) lineTo(p[i].x,p[i].y)
+                close()
+            }
+            paint.style=Paint.Style.FILL
+            paint.color=Color.argb(66,255,199,80)
+            canvas.drawPath(path,paint)
+            paint.style=Paint.Style.STROKE
+            paint.strokeWidth=dp(3).toFloat()
+            paint.color=Color.rgb(255,209,91)
+            canvas.drawPath(path,paint)
+            val x=p.map { it.x }.average().toFloat()
+            val y=p.map { it.y }.average().toFloat()
+            paint.style=Paint.Style.FILL
+            paint.color=Color.WHITE
+            canvas.drawCircle(x,y,dp(21).toFloat(),paint)
+            paint.color=Color.rgb(26,42,56)
+            canvas.drawCircle(x,y,dp(9).toFloat(),paint)
+            paint.color=Color.WHITE
+            paint.textAlign=Paint.Align.CENTER
+            paint.textSize=dp(12).toFloat()
+            paint.setShadowLayer(dp(2).toFloat(),0f,0f,Color.BLACK)
+            canvas.drawText("PULL",x,y-dp(33),paint)
+            paint.clearShadowLayer()
+        }
+    }
+
     private enum class TopHandleKind { LEAN, WIDTH, LENGTH }
     private data class TopHandle(
         val kind: TopHandleKind, val label: String, val center: PointF,
