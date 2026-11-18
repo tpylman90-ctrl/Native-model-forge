@@ -73,6 +73,33 @@ int main() {
     try { forge::faceExtrudedBox(2,1,3,1,1,0,0,-0.6f); }
     catch(const std::invalid_argument&) { rejected=true; }
     assert(rejected);
+    forge::FaceFeatures features{};
+    features[0]={0,0.35f,0.65f,-0.3f,0.3f,0.25f};
+    features[4]={1,0.58f,0.48f,0.2f,-0.4f,-0.18f};
+    const auto multi=forge::multiFaceBox(4.f,2.f,6.f,1.f,1.f,0.f,features);
+    assert(multi.size()==54+390+4*6);
+    for(std::size_t i=0;i<multi.size();i+=3) {
+        const auto& a=multi[i],&b=multi[i+1],&c=multi[i+2];
+        const float ux=b.px-a.px,uy=b.py-a.py,uz=b.pz-a.pz;
+        const float vx=c.px-a.px,vy=c.py-a.py,vz=c.pz-a.pz;
+        const float area=(uy*vz-uz*vy)*a.nx +
+            (uz*vx-ux*vz)*a.ny+(ux*vy-uy*vx)*a.nz;
+        assert(std::isfinite(area) && area>0.f);
+    }
+    for(int face=0;face<6;++face) {
+        forge::FaceFeatures only{};
+        only[face]={1,0.33f,0.75f,-0.6f,0.6f,0.12f};
+        auto oval=forge::multiFaceBox(4.f,2.f,6.f,0.65f,1.2f,0.2f,only);
+        assert(oval.size()==390+5*6);
+    }
+    assert(forge::faceVertexCount(features[0])==54);
+    assert(forge::faceVertexCount(features[4])==390);
+    rejected=false;
+    features[2]={0,0.92f,0.2f,0.f,0.f,0.1f};
+    try { forge::multiFaceBox(4,2,6,1,1,0,features); }
+    catch(const std::invalid_argument&) {rejected=true;}
+    assert(rejected);
+    std::cout<<"MODEL_FORGE_MULTIFACE: PASS independent faces and rectangular/oval geometry"<<std::endl;
     std::cout << "MODEL_FORGE_FACE_EXTRUDE: PASS 6 faces, positive/negative inset extrusions, normals and bounds" << std::endl;
     std::cout << "MODEL_FORGE_NATIVE_CORE: PASS exact dimensions / 12 triangles / hard normals / rejects invalid" << std::endl;
 }

@@ -7,6 +7,14 @@
 namespace forge {
 // The CAD kind describes canonical B-Rep assets; the OCCT adapter is not shipped.
 enum class GeometryKind : std::uint8_t { PolygonMesh = 1, CadBrep = 2 };
+struct FaceRegion {
+    int kind=-1; // -1 none, 0 rectangle, 1 oval
+    double width=0.55;
+    double height=0.55;
+    double offsetU=0.0;
+    double offsetV=0.0;
+    double depthMetres=0.0;
+};
 struct ModelObject {
     std::uint64_t id = 0;
     GeometryKind kind = GeometryKind::PolygonMesh;
@@ -15,9 +23,8 @@ struct ModelObject {
     std::array<double, 3> sizeMetres{{1.0, 1.0, 1.0}};
     // Native project parameters are canonical; display triangles are disposable.
     std::array<double, 3> topProfile{{1.0, 1.0, 0.0}};
-    // Single-feature face extrusion for the v0.5 generated-box workflow.
-    int extrusionFace = -1; // -1 means no extrusion, 0..5 are semantic faces
-    double extrusionDepthMetres = 0.0;
+    // Six independent editable regions. Each face owns its own feature.
+    std::array<FaceRegion,6> faceRegions{};
 };
 
 // Host-testable, renderer-independent document. No Android or OCCT headers.
@@ -34,8 +41,8 @@ public:
                 std::uint64_t expectedRevision);
     void reshape(std::uint64_t objectId, std::array<double,3> sizeMetres,
                  std::array<double,3> topProfile, std::uint64_t expectedRevision);
-    void setFaceExtrusion(std::uint64_t objectId, int faceId, double depthMetres,
-                          std::uint64_t expectedRevision);
+    void setFaceRegion(std::uint64_t objectId,int faceId,const FaceRegion& region,
+                       std::uint64_t expectedRevision);
     void rename(std::uint64_t objectId, std::string name,
                 std::uint64_t expectedRevision);
     void erase(std::uint64_t objectId, std::uint64_t expectedRevision);

@@ -56,6 +56,12 @@ Tap **SELECT FACE**, then tap a visible surface on the generated box. The select
 
 Undo/Redo works through the native document. `MFORGE_DOC 3` stores the selected extrusion feature and survives app restart; previous v1/v2 generated-box recovery files remain readable. Imported GLBs stay preview-only. Direct top-shaping controls and orbit controls remain separate modes. See [milestone 04](docs/FOUNDATION_MILESTONE_04.md).
 
+## v0.6 independent face regions
+
+Native generated boxes now retain separate rectangle/oval inset features on **each of the six original box faces**. Select a face, choose an area outline (rectangle or oval), set its size (width and height as percentages of the face), move the area with X/Y position sliders and pull it outward or recess it inward. The selected outline previews the area while adjusting sliders. Editing another original face preserves the previous face's feature. Undo/Redo and crash-safe local recovery retain all features through `MFORGE_DOC 4` with migration from v1–v3. The bottom tools are scrollable and do not cover the entire model.
+
+This iteration still limits a face to one editable region, rather than stacking multiple cuts on the same face. Imported GLB geometry, arbitrary edge/vertex operations, circular geometry of fixed real-world radius, and a B-Rep kernel are future work. See [milestone 05](docs/FOUNDATION_MILESTONE_05.md).
+
 ## First real-user gate
 
 A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.

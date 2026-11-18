@@ -26,6 +26,7 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.SeekBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import android.text.InputType
@@ -61,6 +62,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private lateinit var surface: SurfaceView
     private lateinit var viewer: ModelViewer
     private lateinit var drawer: LinearLayout
+    private lateinit var drawerScroll: ScrollView
     private lateinit var drawerToggle: Button
     private lateinit var status: TextView
     private lateinit var widthField: EditText
@@ -73,6 +75,14 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private lateinit var extrudeDepthField: EditText
     private lateinit var faceSelectionText: TextView
     private lateinit var extrudeApplyButton: Button
+    private lateinit var regionWidthSlider: SeekBar
+    private lateinit var regionHeightSlider: SeekBar
+    private lateinit var regionOffsetUSlider: SeekBar
+    private lateinit var regionOffsetVSlider: SeekBar
+    private lateinit var regionRectButton: Button
+    private lateinit var regionOvalButton: Button
+    private var regionKind=0
+    private var baseGeneratedMesh: FloatArray? = null
     private var faceMode = false
     private var selectedFace: Int? = null
     private var currentGeneratedMesh: FloatArray? = null
@@ -88,10 +98,18 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private var currentName = "Starter Box"
     private var importedPreview = false
     // The current editable primitive is independent of Filament render entities.
+    private data class FaceArea(
+        val kind: Int = -1,
+        val width: Float = 0.55f,
+        val height: Float = 0.55f,
+        val offsetU: Float = 0f,
+        val offsetV: Float = 0f,
+        val depth: Float = 0f
+    )
     private data class Shape(
         val width: Float, val height: Float, val length: Float,
         val topWidth: Float = 1f, val topLength: Float = 1f, val shiftX: Float = 0f,
-        val extrudedFace: Int = -1, val extrusionDepth: Float = 0f
+        val areas: List<FaceArea> = List(6) { FaceArea() }
     )
     private var currentShape: Shape? = null
     // Native C++ Document owns object IDs, revisions, and in-session undo/redo.
@@ -192,6 +210,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun showStartupRecovery(message: String) {
         drawer.visibility = View.GONE
+        drawerScroll.visibility = View.GONE
         drawerToggle.text = "3D RENDERER RECOVERY MODE"
         drawerToggle.isEnabled = false
         status.text = "Model Forge launched in safe mode — renderer unavailable"
@@ -296,7 +315,13 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             setBackgroundColor(panel)
             setPadding(dp(12), dp(5), dp(12), dp(8))
         }
-        main.addView(drawer)
+        drawerScroll=ScrollView(this).apply {
+            isFillViewport=false
+            isVerticalScrollBarEnabled=true
+            addView(drawer)
+        }
+        main.addView(drawerScroll,LinearLayout.LayoutParams(-1,
+            minOf(dp(460),(resources.displayMetrics.heightPixels*0.43f).toInt())))
         drawer.addView(textLabel("START SIMPLE   •   REAL 3D GEOMETRY", 14f, accent))
         drawer.addView(textLabel("Size your box, then create it. Advanced tools will use the same mesh.", 12f, muted))
 
@@ -331,11 +356,22 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         })
         actionsRow.addView(button("⟳ TURN VIEW") { rotateCameraForCheck() })
         actionsRow.addView(button("ADVANCED • SOON") {
-            toast("Top-surface shaping works now. Arbitrary face/edge editing is coming later.")
+            toast("Face area selection works on generated boxes. Edge/vertex editing is coming later.")
         })
-        drawer.addView(textLabel("FACE TOOLS • TAP A SURFACE, THEN EXTRUDE", 13f, accent))
+        drawer.addView(textLabel("FACE TOOLS • CHOOSE YOUR PANEL AREA", 13f, accent))
         faceSelectionText = textLabel("Face selection is off", 12f, muted)
         drawer.addView(faceSelectionText)
+        val areaShapeRow=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        drawer.addView(areaShapeRow)
+        regionRectButton=button("▭ RECTANGLE") { regionKind=0; updateAreaButtons(); faceOverlay.invalidate() }
+        regionOvalButton=button("◯ OVAL") { regionKind=1; updateAreaButtons(); faceOverlay.invalidate() }
+        areaShapeRow.addView(regionRectButton,LinearLayout.LayoutParams(0,dp(52),1f))
+        areaShapeRow.addView(regionOvalButton,LinearLayout.LayoutParams(0,dp(52),1f))
+        regionWidthSlider=profileSlider(drawer,"AREA WIDTH",15,85,55) { "$it% of face" }
+        regionHeightSlider=profileSlider(drawer,"AREA HEIGHT",15,85,55) { "$it% of face" }
+        regionOffsetUSlider=profileSlider(drawer,"LEFT / RIGHT POSITION",-80,80,0) { "$it%" }
+        regionOffsetVSlider=profileSlider(drawer,"UP / DOWN POSITION",-80,80,0) { "$it%" }
+        updateAreaButtons()
         val extrusionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         drawer.addView(extrusionRow)
         extrudeDepthField = EditText(this).apply {
@@ -356,7 +392,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         drawer.addView(stepRow)
         stepRow.addView(button("− 0.10 m") { nudgeFace(-0.10f) })
         stepRow.addView(button("+ 0.10 m") { nudgeFace(0.10f) })
-        drawer.addView(textLabel("One inset face feature per generated box. Negative = recess.", 11f, muted))
+        drawer.addView(button("REMOVE SELECTED FACE EDIT") { removeFaceEdit() })
+        drawer.addView(textLabel("Each face keeps its own shape, size, and depth. Other faces stay intact.", 11f, muted))
         drawer.addView(textLabel("Offline-first • GLB export • Community sharing planned, not active", 11f, muted))
         syncShapeUi()
     }
@@ -395,6 +432,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(view: SeekBar?, progress: Int, fromUser: Boolean) {
                 caption.text = name + "  •  " + display(min + progress)
+                if(fromUser && ::faceOverlay.isInitialized) faceOverlay.invalidate()
             }
             override fun onStartTrackingTouch(view: SeekBar?) = Unit
             override fun onStopTrackingTouch(view: SeekBar?) = Unit
@@ -449,6 +487,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun setDrawerVisible(opened: Boolean) {
         drawer.visibility = if (opened) View.VISIBLE else View.GONE
+        drawerScroll.visibility = if (opened) View.VISIBLE else View.GONE
         drawerToggle.text = if (opened) "▼ HIDE TOOLS" else "▲ OPEN TOOLS"
         status.text = if (faceMode)
             "FACE MODE: tap surface • drag selected circle • or enter metres"
@@ -479,16 +518,28 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun renderShape(shape: Shape): Boolean {
-        val mesh = NativeGeometry.generateFaceExtrudedBox(
-            shape.width, shape.height, shape.length,
-            shape.topWidth, shape.topLength, shape.shiftX,
-            shape.extrudedFace, shape.extrusionDepth
+        val parts=FloatArray(36)
+        shape.areas.forEachIndexed { face,f ->
+            val p=face*6
+            parts[p]=f.kind.toFloat()
+            parts[p+1]=f.width
+            parts[p+2]=f.height
+            parts[p+3]=f.offsetU
+            parts[p+4]=f.offsetV
+            parts[p+5]=f.depth
+        }
+        val mesh=NativeGeometry.generateMultiFaceBox(
+            shape.width,shape.height,shape.length,
+            shape.topWidth,shape.topLength,shape.shiftX,parts
         )
         val bytes = GlbBuilder.fromPacked(mesh)
         val ok = present(bytes, "Solid " + shape.width + " × " + shape.height + " × " + shape.length,
             false, shape)
         if (ok) {
             currentGeneratedMesh = mesh
+            baseGeneratedMesh=NativeGeometry.generateProfiledBox(
+                shape.width,shape.height,shape.length,
+                shape.topWidth,shape.topLength,shape.shiftX)
             if (::faceOverlay.isInitialized) faceOverlay.invalidate()
         }
         return ok
@@ -541,9 +592,14 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun fromNative(): Shape? {
         val values = NativeProject.currentShape() ?: return null
-        if (values.size != 8) return null
+        if (values.size != 42) return null
+        val areas=List(6) { face ->
+            val p=6+face*6
+            FaceArea(values[p].toInt(),values[p+1],values[p+2],
+                     values[p+3],values[p+4],values[p+5])
+        }
         return Shape(values[0], values[1], values[2],
-            values[3], values[4], values[5], values[6].toInt(), values[7])
+            values[3], values[4], values[5], areas)
     }
 
     private fun undoShape() {
@@ -556,6 +612,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             saveWorkingShape()
         }
         syncShapeUi()
+        selectedFace?.let { syncRegionUi(it) }
     }
 
     private fun redoShape() {
@@ -568,6 +625,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             saveWorkingShape()
         }
         syncShapeUi()
+        selectedFace?.let { syncRegionUi(it) }
     }
 
     private fun saveWorkingShape() {
@@ -621,9 +679,17 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             faceSelectionText.text = if (shape == null) "Face selection unavailable for imported GLB"
                 else if (!faceMode) "Tap SELECT FACE to enable"
                 else if (face == null) "Tap any visible face on the box"
-                else "Selected: " + faceName(face) + " • positive = raised, negative = recessed"
+                else "Selected: " + faceName(face) + " • " +
+                    (shape.areas.count {it.kind>=0 && kotlin.math.abs(it.depth)>1e-6f}) +
+                    " edited face(s) • positive raised / negative recessed"
         }
         if (::extrudeApplyButton.isInitialized) extrudeApplyButton.isEnabled = faceMode && selectedFace != null
+        if (::regionRectButton.isInitialized) regionRectButton.isEnabled=faceMode && selectedFace!=null
+        if (::regionOvalButton.isInitialized) regionOvalButton.isEnabled=faceMode && selectedFace!=null
+        if (::regionWidthSlider.isInitialized) {
+            for(slider in arrayOf(regionWidthSlider,regionHeightSlider,regionOffsetUSlider,regionOffsetVSlider))
+                slider.isEnabled=faceMode && selectedFace!=null
+        }
         if (::directShapeButton.isInitialized) {
             directShapeButton.isEnabled = shape != null
             directShapeButton.text = if (directShapeMode) "● TOP EDIT ON" else "◎ EDIT ON MODEL"
@@ -659,7 +725,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             viewer.loadModelGlb(buffer)
             viewer.transformToUnitCube(Float3(0f, 0f, 0f))
             currentGlb = bytes
-            if (imported) currentGeneratedMesh = null
+            if (imported) { currentGeneratedMesh = null; baseGeneratedMesh = null }
             currentName = name
             importedPreview = imported
             currentShape = shape
@@ -826,7 +892,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 "CREATE: Enter width, height and length, then tap CREATE BOX.\n\n" +
                 "SHAPE: Adjust top width, top length and sideways lean, then tap APPLY SHAPE. Or tap EDIT ON MODEL, hide tools and drag the three TOP handles. Undo/Redo uses the native document during this session. Your last editable shape is restored after relaunch.\n\n" +
                 "VIEW: Drag the model or use the right joystick to orbit. Pinch to zoom; two fingers pan. FIT VIEW resets the camera; TURN VIEW tests orbit. ▼ HIDE TOOLS expands the screen.\n\n" +
-                "FACE EDIT: SELECT FACE, tap a visible face to highlight it, then drag its centre circle or enter a signed depth in metres and press EXTRUDE. Negative values make a recess. One extrusion per generated box; selecting another face replaces it.\n\n" +
+                "FACE EDIT: SELECT FACE, tap any visible original box face. Choose RECTANGLE or OVAL and adjust AREA WIDTH, AREA HEIGHT, and X/Y position sliders. The selected outline previews the area. Drag the PULL circle or enter signed metres and press EXTRUDE. Negative values make a recess. Every original face keeps its own edit; REMOVE SELECTED FACE EDIT clears only that face.\n\n" +
                 "SAVE GLB: Keep the real mesh on your phone. OPEN GLB: Preview existing models.\n\n" +
                 "NEXT: Multi-face editing, edge beveling and arbitrary imported mesh topology. Imported GLBs remain preview-only."
             ).setPositiveButton("GOT IT", null).show()
@@ -890,9 +956,13 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         fun at(vertex: Int): ScreenPoint? {
             val i=vertex*6
             if(i<0 || i+2>=packed.size) return null
-            val x=(packed[i].toDouble()-center[0])*scale
-            val y=(packed[i+1].toDouble()-center[1])*scale
-            val z=(packed[i+2].toDouble()-center[2])*scale
+            return atWorld(packed[i],packed[i+1],packed[i+2])
+        }
+
+        fun atWorld(wx:Float,wy:Float,wz:Float):ScreenPoint? {
+            val x=(wx.toDouble()-center[0])*scale
+            val y=(wy.toDouble()-center[1])*scale
+            val z=(wz.toDouble()-center[2])*scale
             fun mul(m: DoubleArray, a: Double, b: Double, c: Double, d: Double): DoubleArray =
                 DoubleArray(4) { j ->
                     m[j]*a + m[j+4]*b + m[j+8]*c + m[j+12]*d
@@ -927,25 +997,41 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         arrayOf("FRONT", "REAR", "RIGHT", "LEFT", "TOP", "BOTTOM")
             .getOrElse(id) { "UNKNOWN" }
 
-    private fun faceQuadIndices(face: Int, shape: Shape, vertexCount: Int): IntArray? {
-        if(face !in 0..5) return null
-        val hasExtrusion=shape.extrudedFace in 0..5 &&
-            kotlin.math.abs(shape.extrusionDepth)>1e-6f
-        val base = if(hasExtrusion && shape.extrudedFace==face) {
-            vertexCount-6
-        } else if(hasExtrusion) {
-            ((0..5).filter { it != shape.extrudedFace }.indexOf(face))*6
-        } else face*6
-        if(base<0 || base+5>=vertexCount) return null
-        return intArrayOf(base,base+1,base+2,base+5)
+    private fun activeFaceVertices(f: FaceArea): Int =
+        if(f.kind<0 || kotlin.math.abs(f.depth)<1e-6f) 6
+        else if(f.kind==0) 54 else 390
+
+    private fun faceStart(face:Int, shape:Shape):Int {
+        var offset=0
+        for(i in 0 until face) offset+=activeFaceVertices(shape.areas[i])
+        return offset
     }
 
-    private fun faceForTriangle(index: Int, shape: Shape): Int {
-        val hasExtrusion=shape.extrudedFace in 0..5 &&
-            kotlin.math.abs(shape.extrusionDepth)>1e-6f
-        if(!hasExtrusion) return index/2
-        if(index>=10) return shape.extrudedFace
-        return (0..5).filter { it != shape.extrudedFace }[index/2]
+    private fun faceQuadIndices(face: Int, shape: Shape, vertexCount: Int): IntArray? {
+        if(face !in 0..5) return null
+        val start=faceStart(face,shape)
+        val f=shape.areas[face]
+        val count=activeFaceVertices(f)
+        if(start<0 || start+count>vertexCount) return null
+        return if(count==6) intArrayOf(start,start+1,start+2,start+5)
+        else {
+            val n=if(f.kind==0) 4 else 32
+            val capStart=start+if(n==4) 48 else 300
+            IntArray(n) { i -> when(i) {
+                0 -> capStart
+                1 -> capStart+1
+                else -> capStart+(i-2)*3+2
+            }}
+        }
+    }
+
+    private fun faceForTriangle(index:Int,shape:Shape):Int {
+        var triangleBase=0
+        for(i in 0..5) {
+            triangleBase+=activeFaceVertices(shape.areas[i])/3
+            if(index<triangleBase) return i
+        }
+        return 5
     }
 
     private fun pickFace(x: Float, y: Float): Int? {
@@ -981,11 +1067,40 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         return value.coerceIn(-0.4f*dimension,2.0f*dimension)
     }
 
+    private fun updateAreaButtons() {
+        if(!::regionRectButton.isInitialized) return
+        regionRectButton.text=if(regionKind==0) "● RECTANGLE" else "▭ RECTANGLE"
+        regionOvalButton.text=if(regionKind==1) "● OVAL" else "◯ OVAL"
+    }
+
+    private fun syncRegionUi(face:Int) {
+        val shape=currentShape ?: return
+        if(face !in 0..5) return
+        val area=shape.areas[face]
+        regionKind=if(area.kind<0) 0 else area.kind
+        updateAreaButtons()
+        regionWidthSlider.progress=(area.width*100).toInt()-15
+        regionHeightSlider.progress=(area.height*100).toInt()-15
+        regionOffsetUSlider.progress=(area.offsetU*100).toInt()+80
+        regionOffsetVSlider.progress=(area.offsetV*100).toInt()+80
+        extrudeDepthField.setText(String.format(java.util.Locale.US,"%.2f",
+            if(area.kind<0) 0.25f else area.depth))
+        faceOverlay.invalidate()
+    }
+
+    private fun areaFromControls(depth:Float):FaceArea =
+        FaceArea(regionKind,
+            (regionWidthSlider.progress+15)/100f,
+            (regionHeightSlider.progress+15)/100f,
+            (regionOffsetUSlider.progress-80)/100f,
+            (regionOffsetVSlider.progress-80)/100f,
+            depth)
+
     private fun applyFaceInput() {
         val id=selectedFace ?: run { toast("Tap a box face before extruding."); return }
         val depth=extrudeDepthField.text.toString().toFloatOrNull()
         if(depth==null || !depth.isFinite()) {
-            toast("Enter an extrusion depth in metres, such as 0.25 or -0.15.")
+            toast("Enter depth in metres, such as 0.25 or -0.15.")
             return
         }
         applyFaceExtrusion(id,depth)
@@ -994,43 +1109,62 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private fun nudgeFace(delta: Float) {
         val id=selectedFace ?: run { toast("Select a face first."); return }
         val shape=currentShape ?: return
-        val current=if(shape.extrudedFace==id) shape.extrusionDepth else 0f
-        applyFaceExtrusion(id,clampExtrusion(current+delta,shape))
+        val area=shape.areas[id]
+        applyFaceExtrusion(id,clampExtrusion((if(area.kind>=0) area.depth else 0f)+delta,shape))
     }
 
-    private fun applyFaceExtrusion(face: Int,depth: Float) {
+    private fun removeFaceEdit() {
+        val face=selectedFace ?: run { toast("Select a face to remove its edit.");return }
+        commitRegion(face,FaceArea())
+    }
+
+    private fun applyFaceExtrusion(face:Int,depth:Float) {
         val original=currentShape ?: return
         if(face !in 0..5 || !depth.isFinite()) return
         val safe=clampExtrusion(depth,original)
         if(kotlin.math.abs(safe-depth)>0.0001f) {
-            toast("Depth limited to safe range " +
-                (-0.4f*minOf(original.width,original.height,original.length)) +
-                " to " + (2f*minOf(original.width,original.height,original.length)) + " m")
+            toast("Depth outside safe range; try " +
+                String.format(java.util.Locale.US,"%.2f",safe) + " m")
             return
         }
-        val next=original.copy(extrudedFace=face,extrusionDepth=safe)
-        if(next==original) return
+        commitRegion(face,areaFromControls(safe))
+    }
+
+    private fun commitRegion(face:Int,area:FaceArea) {
+        val original=currentShape ?: return
+        if(face !in 0..5) return
+        if(original.areas[face]==area) return
+        val updated=original.areas.toMutableList()
+        updated[face]=area
+        val next=original.copy(areas=updated)
+        var committed=false
         try {
-            // Commit canonical shape before regenerating the viewport;
-            // reverse the native transaction if the preview cannot load.
-            NativeProject.setFaceExtrusion(face,safe)
+            NativeProject.setFaceRegion(face,area.kind,area.width,area.height,
+                area.offsetU,area.offsetV,area.depth)
+            committed=true
             if(!renderShape(next)) {
                 NativeProject.undo()
                 renderShape(original)
-                toast("Extrusion preview failed; original model restored.")
+                toast("Face preview failed; previous geometry restored.")
                 return
             }
             saveWorkingShape()
-            extrudeDepthField.setText(String.format(java.util.Locale.US,"%.2f",safe))
+            syncRegionUi(face)
             syncShapeUi()
-            status.text = faceName(face) + ": " +
-                String.format(java.util.Locale.US,"%+.2f m",safe) +
-                " • Undo/Redo supported"
-        } catch (error: Exception) {
-            Log.e("ModelForgeFace","Face extrusion failed",error)
-            // The native document validates before mutation; if an exception is
-            // thrown by JNI no edit was committed.
-            toast("Face edit rejected: " + (error.message ?: "invalid depth"))
+            status.text=faceName(face) +
+                if(area.kind<0) ": edit removed; other faces preserved"
+                else ": " + String.format(java.util.Locale.US,"%+.2f m",area.depth) +
+                     " • " + (if(area.kind==0)"rectangle" else "oval") +
+                     " • other faces preserved"
+        } catch(error:Exception) {
+            if(committed) {
+                try { NativeProject.undo(); renderShape(original) }
+                catch(rollback:Exception) {
+                    Log.e("ModelForgeFace","Rollback failed",rollback)
+                }
+            }
+            Log.e("ModelForgeFace","Region rejected",error)
+            toast("Area not applied: " + (error.message ?: "invalid geometry"))
         }
     }
 
@@ -1044,7 +1178,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 faceDragHandle=existing!=null && faceOverlay.hitPull(event.x,event.y)
                 if(faceDragHandle) {
                     val shape=currentShape ?: return false
-                    faceDragBase=if(shape.extrudedFace==existing) shape.extrusionDepth else 0f
+                    faceDragBase=shape.areas[existing ?: return false].depth
                     faceDragPreview=faceDragBase
                     return true
                 }
@@ -1076,9 +1210,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     val face=selectedFace
                     if(face!=null) {
                         val shape=currentShape
-                        val amount=if(shape?.extrudedFace==face) shape.extrusionDepth else 0.25f
-                        extrudeDepthField.setText(String.format(java.util.Locale.US,"%.2f",amount))
-                        status.text=faceName(face) + " selected • drag white handle or enter metres"
+                        if(shape!=null) syncRegionUi(face)
+                        status.text=faceName(face) + " selected • choose area shape/size, then pull"
                     } else status.text="No face found • tap a solid visible surface"
                     syncShapeUi()
                 }
@@ -1100,11 +1233,61 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             val shape=currentShape ?: return null
             val id=selectedFace ?: return null
             val packed=currentGeneratedMesh ?: return null
-            if(!::viewer.isInitialized) return null
+            val base=baseGeneratedMesh ?: return null
+            if(!::viewer.isInitialized || !::regionWidthSlider.isInitialized) return null
             val mapper=MeshProjector(packed)
             if(!mapper.visibleFace(id,shape)) return null
-            val corners=faceQuadIndices(id,shape,packed.size/6) ?: return null
-            return corners.map { mapper.at(it) ?: return null }
+            val start=id*36
+            if(start+35>=base.size) return null
+            val ids=intArrayOf(0,1,2,5)
+            val outer=ids.map { vi ->
+                FloatArray(3) { axis -> base[start+vi*6+axis] }
+            }
+            val feature=areaFromControls(0f)
+            val cu=0.5f+feature.offsetU*(1-feature.width)*0.5f
+            val cv=0.5f+feature.offsetV*(1-feature.height)*0.5f
+            val depth=shape.areas[id].depth
+            val nx=base[start+3]
+            val ny=base[start+4]
+            val nz=base[start+5]
+            fun facePoint(u:Float,v:Float):ScreenPoint? {
+                val wt=floatArrayOf((1-u)*(1-v),u*(1-v),u*v,(1-u)*v)
+                var x=0f;var y=0f;var z=0f
+                for(k in 0..3) {
+                    x+=outer[k][0]*wt[k]
+                    y+=outer[k][1]*wt[k]
+                    z+=outer[k][2]*wt[k]
+                }
+                return mapper.atWorld(x+nx*depth,y+ny*depth,z+nz*depth)
+            }
+            if(regionKind==0) {
+                return listOf(
+                    facePoint(cu-feature.width*0.5f,cv-feature.height*0.5f),
+                    facePoint(cu+feature.width*0.5f,cv-feature.height*0.5f),
+                    facePoint(cu+feature.width*0.5f,cv+feature.height*0.5f),
+                    facePoint(cu-feature.width*0.5f,cv+feature.height*0.5f)
+                ).map { it ?: return null }
+            }
+            val tau=2.0*Math.PI
+            val cornerUv=arrayOf(
+                floatArrayOf(0f,0f),floatArrayOf(1f,0f),
+                floatArrayOf(1f,1f),floatArrayOf(0f,1f))
+            val angles=DoubleArray(5)
+            for(k in 0..3) {
+                var theta=kotlin.math.atan2((cornerUv[k][1]-cv).toDouble(),
+                                            (cornerUv[k][0]-cu).toDouble())
+                if(k>0) while(theta<=angles[k-1]) theta+=tau
+                angles[k]=theta
+            }
+            angles[4]=angles[0]+tau
+            val result=ArrayList<ScreenPoint>(32)
+            for(side in 0..3) for(step in 0 until 8) {
+                val angle=angles[side]+(angles[side+1]-angles[side])*step/8.0
+                val u=cu+feature.width*0.5f*kotlin.math.cos(angle).toFloat()
+                val v=cv+feature.height*0.5f*kotlin.math.sin(angle).toFloat()
+                result.add(facePoint(u,v) ?: return null)
+            }
+            return result
         }
         private fun center(): PointF? {
             val p=selectedPoints() ?: return null
@@ -1121,7 +1304,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             val p=selectedPoints() ?: return
             val path=Path().apply {
                 moveTo(p[0].x,p[0].y)
-                for(i in 1..3) lineTo(p[i].x,p[i].y)
+                for(i in 1 until p.size) lineTo(p[i].x,p[i].y)
                 close()
             }
             paint.style=Paint.Style.FILL

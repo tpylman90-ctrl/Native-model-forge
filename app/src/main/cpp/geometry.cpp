@@ -72,59 +72,132 @@ std::vector<Vertex> profiledBox(float w,float h,float l,float topW,float topL,fl
 }
 
 namespace forge {
+namespace {
+using Point3 = std::array<float,3>;
+Point3 pointAt(const std::array<Point3,4>& p, float u,float v) {
+    // Bilinear interpolation remains on the coplanar trapezoid face.
+    Point3 out{{0.f,0.f,0.f}};
+    const float w[4] = {(1-u)*(1-v),u*(1-v),u*v,(1-u)*v};
+    for(int i=0;i<4;++i)
+        for(int j=0;j<3;++j) out[j]+=p[i][j]*w[i];
+    return out;
+}
+void triangle(std::vector<Vertex>& out,Point3 a,Point3 b,Point3 c) {
+    const auto ab=delta(b,a),ac=delta(c,a);
+    const auto n=cross3(ab,ac);
+    const float len=std::sqrt(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]);
+    if(!std::isfinite(len) || len<1e-9f)
+        throw std::invalid_argument("degenerate face triangle");
+    for(const auto& p:{a,b,c})
+        out.push_back({p[0],p[1],p[2],n[0]/len,n[1]/len,n[2]/len});
+}
+}
+void validateFaceFeature(const FaceFeature& f,float minDimension) {
+    if(f.kind < -1 || f.kind>1 ||
+       !std::isfinite(f.width)||!std::isfinite(f.height)||
+       !std::isfinite(f.offsetU)||!std::isfinite(f.offsetV)||
+       !std::isfinite(f.depth)||
+       f.width<0.15f||f.width>0.85f||
+       f.height<0.15f||f.height>0.85f||
+       std::fabs(f.offsetU)>0.8f||std::fabs(f.offsetV)>0.8f||
+       !std::isfinite(minDimension) || minDimension<=0 ||
+       f.depth < -0.4f*minDimension ||
+       f.depth > 2.f*minDimension ||
+       (f.kind == -1 && f.depth!=0.f))
+       throw std::invalid_argument("invalid face area, shape or extrusion depth");
+}
+int faceVertexCount(const FaceFeature& f) {
+    if(f.kind<0 || std::fabs(f.depth)<1e-6f) return 6;
+    return f.kind==0 ? 54 : 390;
+}
+std::vector<Vertex> multiFaceBox(float w,float h,float l,
+    float tw,float tl,float sx,const FaceFeatures& features) {
+    const auto original=profiledBox(w,h,l,tw,tl,sx);
+    const float minDim=std::fmin(w,std::fmin(h,l));
+    std::vector<Vertex> mesh;
+    mesh.reserve(2400);
+    const std::array<int,4> indices{{0,1,2,5}};
+    for(int faceId=0;faceId<6;++faceId) {
+        const auto& f=features[faceId];
+        validateFaceFeature(f,minDim);
+        const std::size_t start=static_cast<std::size_t>(faceId)*6;
+        if(faceVertexCount(f)==6) {
+            mesh.insert(mesh.end(),original.begin()+start,original.begin()+start+6);
+            continue;
+        }
+        std::array<Point3,4> outer;
+        for(int i=0;i<4;++i) {
+            const Vertex& v=original[start+static_cast<std::size_t>(indices[i])];
+            outer[i]={{v.px,v.py,v.pz}};
+        }
+        const Vertex& vertex=original[start];
+        const Point3 normal{{vertex.nx,vertex.ny,vertex.nz}};
+        const float cu=0.5f+f.offsetU*(1-f.width)*0.5f;
+        const float cv=0.5f+f.offsetV*(1-f.height)*0.5f;
+        const int steps=f.kind==0?1:8;
+        const int n=4*steps;
+        std::vector<Point3> inner,cap;
+        inner.reserve(n);cap.reserve(n);
+        const float tau=6.2831853071795864769f;
+        float angles[5];
+        for(int i=0;i<4;++i) {
+            const float ux=(i==1||i==2)?1.f:0.f;
+            const float vy=(i>=2)?1.f:0.f;
+            angles[i]=std::atan2(vy-cv,ux-cu);
+            if(i>0) while(angles[i]<=angles[i-1]) angles[i]+=tau;
+        }
+        angles[4]=angles[0]+tau;
+        for(int side=0;side<4;++side) {
+            for(int k=0;k<steps;++k) {
+                float u,v;
+                if(f.kind==0) {
+                    u=cu+((side==1||side==2)?f.width*0.5f:-f.width*0.5f);
+                    v=cv+((side>=2)?f.height*0.5f:-f.height*0.5f);
+                } else {
+                    const float theta=angles[side]+
+                        (angles[side+1]-angles[side])*
+                        (static_cast<float>(k)/steps);
+                    u=cu+f.width*0.5f*std::cos(theta);
+                    v=cv+f.height*0.5f*std::sin(theta);
+                }
+                const auto p=pointAt(outer,u,v);
+                inner.push_back(p);
+                Point3 raised=p;
+                for(int c=0;c<3;++c) raised[c]+=normal[c]*f.depth;
+                cap.push_back(raised);
+            }
+        }
+        // Stitch each original quad edge to the inset perimeter without
+        // splitting shared outer edges: no boundary T-junctions.
+        for(int side=0;side<4;++side) {
+            const int first=side*steps;
+            const int last=((side+1)*steps)%n;
+            triangle(mesh,outer[side],outer[(side+1)%4],inner[last]);
+            for(int k=0;k<steps;++k) {
+                const int i=first+k;
+                const int j=(i+1)%n;
+                triangle(mesh,outer[side],inner[j],inner[i]);
+            }
+        }
+        for(int i=0;i<n;++i) {
+            const int j=(i+1)%n;
+            profileQuad(mesh,inner[i],inner[j],cap[j],cap[i]);
+        }
+        for(int i=1;i<n-1;++i) triangle(mesh,cap[0],cap[i],cap[i+1]);
+    }
+    return mesh;
+}
 std::vector<Vertex> faceExtrudedBox(float w,float h,float l,
     float tw,float tl,float shift,int faceIndex,float depth) {
-    const auto base = profiledBox(w,h,l,tw,tl,shift);
-    if(faceIndex == -1 && depth == 0.f) return base;
-    if(faceIndex < 0 || faceIndex > 5 || !std::isfinite(depth))
-        throw std::invalid_argument("extrusion requires a valid face and finite depth");
-    const float minDimension = std::fmin(w, std::fmin(h,l));
-    if(depth < -0.40f * minDimension ||
-       depth > 2.f * minDimension)
-        throw std::invalid_argument("extrusion depth exceeds safe model bounds");
-    if(std::fabs(depth) < 1e-6f) return base;
-    // Preserve adjacent faces. Replace only the selected face with an inset
-    // border, four joining walls, and a translated cap. This also produces
-    // a proper recessed pocket for negative depths rather than overlapping
-    // coplanar neighbor faces.
-    std::vector<Vertex> result;
-    result.reserve(84);
-    for(int faceId=0;faceId<6;++faceId) {
-        if(faceId == faceIndex) continue;
-        const std::size_t start = static_cast<std::size_t>(faceId) * 6;
-        result.insert(result.end(),base.begin()+start,base.begin()+start+6);
-    }
-    using Point = std::array<float,3>;
-    const std::size_t start=static_cast<std::size_t>(faceIndex)*6;
-    const std::array<int,4> corners{{0,1,2,5}};
-    std::array<Point,4> outer;
-    Point center{{0.f,0.f,0.f}};
-    for(int i=0;i<4;++i) {
-        const Vertex& v=base[start+static_cast<std::size_t>(corners[i])];
-        outer[i]={{v.px,v.py,v.pz}};
-        for(int c=0;c<3;++c)center[c]+=outer[i][c]*0.25f;
-    }
-    const Vertex& normal=base[start];
-    const Point n{{normal.nx,normal.ny,normal.nz}};
-    std::array<Point,4> inset,cap;
-    for(int i=0;i<4;++i) {
-        for(int c=0;c<3;++c) {
-            // A deliberate inset prevents a full-face recess from coinciding
-            // with and degenerating the original neighboring boundaries.
-            inset[i][c]=center[c]+0.82f*(outer[i][c]-center[c]);
-            cap[i][c]=inset[i][c]+n[c]*depth;
-        }
-    }
-    for(int i=0;i<4;++i) {
-        const int j=(i+1)%4;
-        profileQuad(result,outer[i],outer[j],inset[j],inset[i]);
-    }
-    for(int i=0;i<4;++i) {
-        const int j=(i+1)%4;
-        profileQuad(result,inset[i],inset[j],cap[j],cap[i]);
-    }
-    profileQuad(result,cap[0],cap[1],cap[2],cap[3]);
-    if(result.size()!=84u) throw std::runtime_error("extrusion topology error");
-    return result;
+    FaceFeatures features{};
+    if(faceIndex==-1 && depth==0.f)
+        return multiFaceBox(w,h,l,tw,tl,shift,features);
+    if(faceIndex<0 || faceIndex>=6)
+        throw std::invalid_argument("invalid extrusion face");
+    features[faceIndex].kind=0;
+    features[faceIndex].width=0.82f;
+    features[faceIndex].height=0.82f;
+    features[faceIndex].depth=depth;
+    return multiFaceBox(w,h,l,tw,tl,shift,features);
 }
 }
