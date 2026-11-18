@@ -119,9 +119,26 @@ jobs:
           assert match, "Cannot find APK signing certificate SHA-256"
           assert match.group(1).lower() == expected, "APK no longer uses the pinned dev signing key"
           assert "package: name='com.modelforge.nativeeditor.dev'" in badging, "DEV package ID missing"
-          assert "versionCode='7'" in badging, "DEV versionCode missing"
+          assert "versionCode='8'" in badging, "DEV versionCode missing"
           assert "Model Forge DEV" in badging, "DEV app label missing"
           print("DEV_SIGNING: PASS same pinned signing certificate, isolated application ID, versionCode and label")
+          PY
+      - name: Guard face-picking, signed extrusion and project format
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          core=Path("app/src/main/cpp/geometry.cpp").read_text()
+          doc=Path("app/src/main/cpp/document.cpp").read_text()
+          glb=Path("app/src/main/java/com/modelforge/nativeeditor/GlbBuilder.kt").read_text()
+          ui=Path("app/src/main/java/com/modelforge/nativeeditor/MainActivity.kt").read_text()
+          assert "faceExtrudedBox(" in core and "profileQuad(result,cap[0]" in core
+          assert "MFORGE_DOC 3" in doc and "setFaceExtrusion" in doc
+          assert "fun fromPacked(packed: FloatArray)" in glb
+          assert "private fun pickFace(" in ui and "private inner class FaceSelectionOverlay" in ui
+          assert "private fun handleFaceGesture(" in ui and "NativeProject.setFaceExtrusion(" in ui
+          assert "if (directShapeMode) shapeOverlay.invalidate()" in ui
+          assert "viewer.onTouchEvent(event)" in ui
+          print("FACE_SELECT_EXTRUDE: PASS projected triangle picking, native editing and orbit guard")
           PY
       - name: Audit APK includes model core, DEX and manifest
         shell: bash
