@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 int main() {
@@ -121,6 +122,23 @@ int main() {
         // Negative bulges must respect the available outer-face margin.
         assert(blocked || forge::multiFaceBox(4,2,6,1,1,0,curved).size()==420);
     }
+    int decoded=99;
+    for(int allowed:{-1,0,1,2}) {
+        assert(forge::decodeFaceKind(static_cast<float>(allowed),decoded));
+        assert(decoded==allowed);
+    }
+    for(float disallowed:{-2.f,3.f,0.5f,2.25f,
+                          std::numeric_limits<float>::quiet_NaN()}) {
+        assert(!forge::decodeFaceKind(disallowed,decoded));
+    }
+    forge::FaceFeatures drawn{};
+    drawn[4].kind=2;drawn[4].width=0.47f;drawn[4].height=0.63f;
+    drawn[4].curves={{0.08f,-0.06f,0.12f,0.f}};
+    // A drawn area can be saved at zero depth, ready for a later pull.
+    assert(forge::multiFaceBox(4.f,2.f,6.f,1.f,1.f,0.f,drawn).size()==36);
+    drawn[4].depth=0.28f;
+    assert(forge::multiFaceBox(4.f,2.f,6.f,1.f,1.f,0.f,drawn).size()==420);
+    std::cout<<"MODEL_FORGE_CURVED_JNI_CODE: PASS type 2 accepted, bad codes rejected, draft and pull generate"<<std::endl;
     std::cout<<"MODEL_FORGE_CURVE_KERNEL: PASS quadratic face edges and normals"<<std::endl;
     std::cout<<"MODEL_FORGE_MULTIFACE: PASS independent faces and rectangular/oval geometry"<<std::endl;
     std::cout << "MODEL_FORGE_FACE_EXTRUDE: PASS 6 faces, positive/negative inset extrusions, normals and bounds" << std::endl;
