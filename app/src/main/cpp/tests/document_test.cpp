@@ -125,14 +125,14 @@ int main() {
     assert(legacyV3.objects()[0].faceRegions[4].kind==0);
     assert(legacyV3.objects()[0].faceRegions[4].depthMetres==0.25);
     assert(legacyV3.objects()[0].faceRegions[4].width==0.82);
-    std::string previousVersion=curvedText;
-    previousVersion.replace(0,std::string("MFORGE_DOC 5").length(),"MFORGE_DOC 4");
-    // The old v4 reader still accepts older six-value records as curves=0.
-    const auto v4=forge::Document::parse(
-        "MFORGE_DOC 4\\n1 2 1\\n1 1 \\"Legacy\\" \\"generated:profiled_box\\" 2 1 3 1 1 0"
-        " -1 0.55 0.55 0 0 0 -1 0.55 0.55 0 0 0"
-        " -1 0.55 0.55 0 0 0 -1 0.55 0.55 0 0 0"
-        " 0 0.45 0.6 0 0 0.25 -1 0.55 0.55 0 0 0\\n");
+    // A genuine v4 six-value region record migrates without curve fields.
+    const auto v4=forge::Document::parse(R"(MFORGE_DOC 4
+1 2 1
+1 1 "Legacy" "generated:profiled_box" 2 1 3 1 1 0
+ -1 0.55 0.55 0 0 0 -1 0.55 0.55 0 0 0
+ -1 0.55 0.55 0 0 0 -1 0.55 0.55 0 0 0
+ 0 0.45 0.6 0 0 0.25 -1 0.55 0.55 0 0 0
+)");
     assert(v4.objects()[0].faceRegions[4].kind==0);
     assert(v4.objects()[0].faceRegions[4].curves[0]==0.0);
     std::cout<<"MODEL_FORGE_DOCUMENT: PASS revision guard, stable IDs, hybrid kinds, rollback, save/load, undo/redo\n";
