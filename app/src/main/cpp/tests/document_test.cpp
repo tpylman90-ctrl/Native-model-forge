@@ -116,7 +116,7 @@ int main() {
     forge::FaceRegion removed;
     extrudeDoc.setFaceRegion(shape,0,removed,extrudeDoc.revision());
     assert(extrudeDoc.objects()[0].faceRegions[0].kind==-1);
-    assert(extrudeDoc.objects()[0].faceRegions[4].kind==0);
+    assert(extrudeDoc.objects()[0].faceRegions[4].kind==2);
     const auto legacyV2=forge::Document::parse(
         "MFORGE_DOC 2\n1 2 1\n1 1 \"Legacy\" \"generated:profiled_box\" 2 1 3 1 1 0\n");
     assert(legacyV2.objects()[0].faceRegions[4].kind==-1);
