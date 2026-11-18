@@ -38,3 +38,22 @@ Java_com_modelforge_nativeeditor_NativeGeometry_generateProfiledBox(
         return nullptr;
     }
 }
+
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_modelforge_nativeeditor_NativeGeometry_generateFaceExtrudedBox(
+        JNIEnv* env, jobject, jfloat w, jfloat h, jfloat l,
+        jfloat tw, jfloat tl, jfloat sx, jint faceIndex, jfloat depth) {
+    static_assert(sizeof(forge::Vertex)==sizeof(float)*6,"packed vertex layout");
+    try {
+        const auto mesh=forge::faceExtrudedBox(w,h,l,tw,tl,sx,faceIndex,depth);
+        jfloatArray result=env->NewFloatArray(static_cast<jsize>(mesh.size()*6));
+        if (!result) return nullptr;
+        env->SetFloatArrayRegion(result,0,static_cast<jsize>(mesh.size()*6),
+                                 reinterpret_cast<const jfloat*>(mesh.data()));
+        return result;
+    } catch(const std::exception& error) {
+        jclass type=env->FindClass("java/lang/IllegalArgumentException");
+        if(type) env->ThrowNew(type,error.what());
+        return nullptr;
+    }
+}
