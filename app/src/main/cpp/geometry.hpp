@@ -11,8 +11,23 @@ struct Vertex {
 std::vector<Vertex> box(float width, float height, float length);
 // Top scales 0.35..1.75; shiftX fraction of width in -0.4..0.4.
 std::vector<Vertex> profiledBox(float width, float height, float length, float topWidth, float topLength, float shiftX);
-// Semantic face indices: front, rear, right, left, top, bottom (0..5).
-// One inset face extrusion/recess may be added without replacing the base hull.
+// Six independent semantic faces. A face can hold a rectangular or oval
+// inset feature with relative width/height and an offset within its margins.
+// kind=-1: none; kind=0: rectangle; kind=1: oval.
+struct FaceFeature {
+    int kind=-1;
+    float width=0.55f;
+    float height=0.55f;
+    float offsetU=0.f; // normalized -0.8..+0.8 of available margin
+    float offsetV=0.f;
+    float depth=0.f;
+};
+using FaceFeatures = std::array<FaceFeature,6>;
+void validateFaceFeature(const FaceFeature& feature,float minDimension);
+int faceVertexCount(const FaceFeature& feature);
+std::vector<Vertex> multiFaceBox(float width,float height,float length,
+    float topWidth,float topLength,float shiftX,const FaceFeatures& features);
+// Backwards-compatible kernel wrapper for the v0.5 test contract.
 std::vector<Vertex> faceExtrudedBox(float width, float height, float length,
     float topWidth, float topLength, float shiftX, int faceIndex, float depth);
 }
