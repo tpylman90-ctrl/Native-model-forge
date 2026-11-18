@@ -26,6 +26,7 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.SeekBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import android.text.InputType
@@ -61,6 +62,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private lateinit var surface: SurfaceView
     private lateinit var viewer: ModelViewer
     private lateinit var drawer: LinearLayout
+    private lateinit var drawerScroll: ScrollView
     private lateinit var drawerToggle: Button
     private lateinit var status: TextView
     private lateinit var widthField: EditText
@@ -208,6 +210,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun showStartupRecovery(message: String) {
         drawer.visibility = View.GONE
+        drawerScroll.visibility = View.GONE
         drawerToggle.text = "3D RENDERER RECOVERY MODE"
         drawerToggle.isEnabled = false
         status.text = "Model Forge launched in safe mode — renderer unavailable"
@@ -312,7 +315,13 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             setBackgroundColor(panel)
             setPadding(dp(12), dp(5), dp(12), dp(8))
         }
-        main.addView(drawer)
+        drawerScroll=ScrollView(this).apply {
+            isFillViewport=false
+            isVerticalScrollBarEnabled=true
+            addView(drawer)
+        }
+        main.addView(drawerScroll,LinearLayout.LayoutParams(-1,
+            minOf(dp(460),(resources.displayMetrics.heightPixels*0.43f).toInt())))
         drawer.addView(textLabel("START SIMPLE   •   REAL 3D GEOMETRY", 14f, accent))
         drawer.addView(textLabel("Size your box, then create it. Advanced tools will use the same mesh.", 12f, muted))
 
@@ -347,7 +356,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         })
         actionsRow.addView(button("⟳ TURN VIEW") { rotateCameraForCheck() })
         actionsRow.addView(button("ADVANCED • SOON") {
-            toast("Top-surface shaping works now. Arbitrary face/edge editing is coming later.")
+            toast("Face area selection works on generated boxes. Edge/vertex editing is coming later.")
         })
         drawer.addView(textLabel("FACE TOOLS • CHOOSE YOUR PANEL AREA", 13f, accent))
         faceSelectionText = textLabel("Face selection is off", 12f, muted)
@@ -478,6 +487,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
 
     private fun setDrawerVisible(opened: Boolean) {
         drawer.visibility = if (opened) View.VISIBLE else View.GONE
+        drawerScroll.visibility = if (opened) View.VISIBLE else View.GONE
         drawerToggle.text = if (opened) "▼ HIDE TOOLS" else "▲ OPEN TOOLS"
         status.text = if (faceMode)
             "FACE MODE: tap surface • drag selected circle • or enter metres"
@@ -882,7 +892,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 "CREATE: Enter width, height and length, then tap CREATE BOX.\n\n" +
                 "SHAPE: Adjust top width, top length and sideways lean, then tap APPLY SHAPE. Or tap EDIT ON MODEL, hide tools and drag the three TOP handles. Undo/Redo uses the native document during this session. Your last editable shape is restored after relaunch.\n\n" +
                 "VIEW: Drag the model or use the right joystick to orbit. Pinch to zoom; two fingers pan. FIT VIEW resets the camera; TURN VIEW tests orbit. ▼ HIDE TOOLS expands the screen.\n\n" +
-                "FACE EDIT: SELECT FACE, tap a visible face to highlight it, then drag its centre circle or enter a signed depth in metres and press EXTRUDE. Negative values make a recess. One extrusion per generated box; selecting another face replaces it.\n\n" +
+                "FACE EDIT: SELECT FACE, tap any visible original box face. Choose RECTANGLE or OVAL and adjust AREA WIDTH, AREA HEIGHT, and X/Y position sliders. The selected outline previews the area. Drag the PULL circle or enter signed metres and press EXTRUDE. Negative values make a recess. Every original face keeps its own edit; REMOVE SELECTED FACE EDIT clears only that face.\n\n" +
                 "SAVE GLB: Keep the real mesh on your phone. OPEN GLB: Preview existing models.\n\n" +
                 "NEXT: Multi-face editing, edge beveling and arbitrary imported mesh topology. Imported GLBs remain preview-only."
             ).setPositiveButton("GOT IT", null).show()
