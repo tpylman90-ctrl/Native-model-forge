@@ -1426,7 +1426,23 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     return true
                 }
                 val existing=selectedFace
-                if(existing!=null) {
+                if(existing!=null && regionStage==RegionStage.SIZE) {
+                    val corner=faceOverlay.hitSizeCorner(event.x,event.y)
+                    if(corner>=0) {
+                        val shape=currentShape ?: return false
+                        val previous=shape.areas[existing]
+                        val editable=if(previous.kind>=0) previous
+                            else areaFromControls(0f).copy(kind=2)
+                        sizeCornerIndex=corner
+                        sizeBaseArea=editable
+                        sizeLiveArea=editable
+                        sizeOppositeCorner=regionCorners(editable)[(corner+2)%4]
+                        faceOverlay.invalidate()
+                        status.text="SIZE: drag gold corner to set width and height"
+                        return true
+                    }
+                }
+                if(existing!=null && regionStage==RegionStage.CURVE) {
                     val edge=faceOverlay.hitCurveEdge(event.x,event.y)
                     if(edge>=0) {
                         val uv=screenFaceUv(existing,event.x,event.y) ?: return false
@@ -1442,7 +1458,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                         return true
                     }
                 }
-                faceDragHandle=existing!=null && faceOverlay.hitPull(event.x,event.y)
+                faceDragHandle=existing!=null && regionStage==RegionStage.PULL &&
+                    faceOverlay.hitPull(event.x,event.y)
                 if(faceDragHandle) {
                     val shape=currentShape ?: return false
                     faceDragBase=shape.areas[existing ?: return false].depth
@@ -1461,6 +1478,18 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     status.text=faceName(drawingFace)+": " +
                         (preview.width*100).toInt() + "% × " +
                         (preview.height*100).toInt() + "% • release to keep"
+                    return true
+                }
+                if(sizeCornerIndex>=0) {
+                    val face=selectedFace ?: return true
+                    val anchor=sizeOppositeCorner ?: return true
+                    val moving=screenFaceUv(face,event.x,event.y) ?: return true
+                    val base=sizeBaseArea ?: return true
+                    val adjusted=resizeArea(base,anchor,moving)
+                    sizeLiveArea=adjusted
+                    faceOverlay.invalidate()
+                    status.text="SIZE: " + (adjusted.width*100).toInt() + "% wide × " +
+                        (adjusted.height*100).toInt() + "% tall • release to save"
                     return true
                 }
                 if(edgeDragIndex>=0) {
@@ -1504,13 +1533,27 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     if(region!=null && dx*dx+dy*dy>dp(25)*dp(25)) {
                         selectedFace=face
                         regionKind=2
+                        regionStage=RegionStage.SIZE
                         if(commitRegion(face,region.copy(kind=2,depth=0f))) {
-                            status.text="Area saved • bend cyan edges • PULL to shape"
+                            status.text=stageInstructions()
                         }
                     } else {
                         status.text="Area too small • touch and drag farther to size"
                     }
                     syncShapeUi()
+                    faceOverlay.invalidate()
+                    return true
+                }
+                if(sizeCornerIndex>=0) {
+                    val face=selectedFace
+                    val resized=sizeLiveArea
+                    sizeCornerIndex=-1
+                    sizeOppositeCorner=null
+                    sizeBaseArea=null
+                    sizeLiveArea=null
+                    if(face!=null && resized!=null && commitRegion(face,resized)) {
+                        status.text=stageInstructions()
+                    }
                     faceOverlay.invalidate()
                     return true
                 }
@@ -1541,28 +1584,26 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     edgeLiveArea=null
                     val face=selectedFace
                     if(face!=null) {
+                        regionStage=RegionStage.SIZE
                         syncRegionUi(face)
-                        status.text=faceName(face)+
-                            " selected • DRAW AREA or bend cyan edge handles"
+                        status.text=stageInstructions()
                     } else status.text="No face found • tap a solid visible surface"
                     syncShapeUi()
                 }
                 return false // Pass camera release through unchanged.
             }
             MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> {
-                val captured=(drawingFace>=0 || edgeDragIndex>=0 || faceDragHandle)
+                val captured=(drawingFace>=0 || sizeCornerIndex>=0 ||
+                    edgeDragIndex>=0 || faceDragHandle)
                 drawingFace=-1
                 drawStartUv=null
                 drawPreview=null
-                edgeDragIndex=-1
-                edgeStartUv=null
-                edgeStartArea=null
-                edgeLiveArea=null
-                faceDragHandle=false
+                resetRegionDrag()
                 if(captured) faceOverlay.invalidate()
                 return captured
             }
-            else -> return drawingFace>=0 || edgeDragIndex>=0 || faceDragHandle
+            else -> return drawingFace>=0 || sizeCornerIndex>=0 ||
+                edgeDragIndex>=0 || faceDragHandle
         }
     }
 
