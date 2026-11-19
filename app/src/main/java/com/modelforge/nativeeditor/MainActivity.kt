@@ -86,6 +86,14 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private var faceMode = false
     private lateinit var drawRegionButton: Button
     private lateinit var regionCurveButton: Button
+    // Explicit touch workflow: DRAW -> SIZE -> CURVE -> PULL.
+    private enum class RegionStage { SIZE, CURVE, PULL }
+    private var regionStage = RegionStage.SIZE
+    private lateinit var regionStageButton: Button
+    private var sizeCornerIndex = -1
+    private var sizeOppositeCorner: FaceUv? = null
+    private var sizeBaseArea: FaceArea? = null
+    private var sizeLiveArea: FaceArea? = null
     private var drawAreaMode = false
     private var drawStartUv: FaceUv? = null
     private var drawPreview: FaceArea? = null
@@ -317,6 +325,17 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         padParams.bottomMargin = dp(8)
         canvas.addView(orbitPad, padParams)
 
+        // Keep the next modeling step available even with the tool drawer hidden.
+        // This button only occupies the top-right corner below the status line.
+        regionStageButton = button("NEXT: CURVE") { advanceRegionStage() }
+        regionStageButton.textSize=13f
+        val nextStepParams=FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, dp(48), Gravity.TOP or Gravity.END)
+        nextStepParams.topMargin=dp(58)
+        nextStepParams.rightMargin=dp(10)
+        canvas.addView(regionStageButton,nextStepParams)
+        regionStageButton.visibility=View.GONE
+
         drawerToggle = button("▼ HIDE TOOLS") { setDrawerVisible(drawer.visibility != View.VISIBLE) }
         drawerToggle.textSize = 16f
         drawerToggle.minimumHeight = dp(52)
@@ -486,7 +505,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         directShapeMode = !directShapeMode
         if (directShapeMode) {
             faceMode = false; drawAreaMode = false; selectedFace = null
-            drawPreview=null; edgeDragIndex=-1
+            drawPreview=null; resetRegionDrag()
         }
         syncShapeUi()
         status.text = if (directShapeMode)
@@ -503,7 +522,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if (faceMode) directShapeMode = false
         else drawAreaMode=false
         drawPreview=null
-        edgeDragIndex=-1
+        resetRegionDrag()
+        regionStage=RegionStage.SIZE
         selectedFace = null
         syncShapeUi()
         status.text = if (faceMode) "FACE MODE: tap a face, then drag the white circle or enter metres"
@@ -521,7 +541,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         drawStartUv=null
         drawPreview=null
         drawingFace=-1
-        edgeDragIndex=-1
+        resetRegionDrag()
+        regionStage=RegionStage.SIZE
         selectedFace=null
         syncShapeUi()
         status.text=if(drawAreaMode) "DRAW AREA: touch a face and drag out your selection"
@@ -529,14 +550,48 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if(drawAreaMode) setDrawerVisible(false)
     }
 
+    private fun resetRegionDrag() {
+        sizeCornerIndex=-1
+        sizeOppositeCorner=null
+        sizeBaseArea=null
+        sizeLiveArea=null
+        edgeDragIndex=-1
+        edgeStartUv=null
+        edgeStartArea=null
+        edgeLiveArea=null
+        faceDragHandle=false
+    }
+
+    private fun advanceRegionStage() {
+        if(!faceMode || selectedFace==null || drawAreaMode) return
+        regionStage=when(regionStage) {
+            RegionStage.SIZE -> RegionStage.CURVE
+            RegionStage.CURVE -> RegionStage.PULL
+            RegionStage.PULL -> RegionStage.SIZE
+        }
+        resetRegionDrag()
+        syncShapeUi()
+        status.text=stageInstructions()
+    }
+
+    private fun stageInstructions():String = when {
+        drawAreaMode -> "DRAW AREA: touch one point and drag to stretch the region"
+        regionStage==RegionStage.SIZE ->
+            "SIZE: drag gold corner handles • NEXT: CURVE when ready"
+        regionStage==RegionStage.CURVE ->
+            "CURVE: bend cyan edge handles • NEXT: PULL when ready"
+        else -> "PULL: drag white handle to raise or recess • EDIT SIZE to change area"
+    }
+
     private fun setDrawerVisible(opened: Boolean) {
         drawer.visibility = if (opened) View.VISIBLE else View.GONE
         drawerScroll.visibility = if (opened) View.VISIBLE else View.GONE
         drawerToggle.text = if (opened) "▼ HIDE TOOLS" else "▲ OPEN TOOLS"
-        status.text = if(drawAreaMode)
-            "DRAW AREA: drag from first corner to opposite corner"
+        status.text = if(faceMode && selectedFace!=null) stageInstructions()
+        else if(drawAreaMode)
+            "DRAW AREA: touch a face and drag to choose size"
         else if (faceMode)
-            "FACE MODE: tap surface • bend curved edges • or pull"
+            "FACE MODE: select a face or use DRAW AREA"
         else if (directShapeMode)
             "EDIT TOP: drag colored handles • other gestures still orbit"
         else if (opened) "Right joystick: orbit • pinch: zoom • drag: rotate"
@@ -715,11 +770,20 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         shiftSlider.isEnabled = shape != null
         if (shape == null) {
             directShapeMode=false;faceMode=false;drawAreaMode=false
-            selectedFace=null;drawPreview=null;edgeDragIndex=-1
+            selectedFace=null;drawPreview=null;resetRegionDrag()
         }
         if (::drawRegionButton.isInitialized) {
             drawRegionButton.isEnabled=shape!=null
             drawRegionButton.text=if(drawAreaMode) "● DRAWING AREA" else "▱ DRAW AREA"
+        }
+        if (::regionStageButton.isInitialized) {
+            regionStageButton.visibility=if(faceMode && selectedFace!=null &&
+                !drawAreaMode) View.VISIBLE else View.GONE
+            regionStageButton.text=when(regionStage) {
+                RegionStage.SIZE -> "NEXT: CURVE"
+                RegionStage.CURVE -> "NEXT: PULL"
+                RegionStage.PULL -> "EDIT SIZE"
+            }
         }
         if (::faceButton.isInitialized) {
             faceButton.isEnabled = shape != null
