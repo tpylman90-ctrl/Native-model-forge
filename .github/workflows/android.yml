@@ -179,7 +179,7 @@ jobs:
           assert "commitRegion(face,resized)" in s
           assert "regionStage==RegionStage.CURVE" in s
           assert "regionStage==RegionStage.PULL" in s
-          assert "RegionStage.SIZE" in s[s.index("if(region!=null && dx*dx"):s.index("if(sizeCornerIndex>=0) {\n                    val face=selectedFace")]
+          assert "regionStage=RegionStage.SIZE" in s[s.index("if(region!=null && dx*dx"): ]
           assert "viewer.onTouchEvent(event)" in s
           print("REGION_SIZE_STAGE: PASS live corner resize, step transitions and camera regression")
           PY
