@@ -1624,7 +1624,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             val outer=ids.map { vi ->
                 FloatArray(3) { axis -> base[start+vi*6+axis] }
             }
-            val feature=drawPreview ?: edgeLiveArea ?: areaFromControls(0f)
+            val feature=drawPreview ?: sizeLiveArea ?: edgeLiveArea ?: areaFromControls(0f)
             val cu=0.5f+feature.offsetU*(1-feature.width)*0.5f
             val cv=0.5f+feature.offsetV*(1-feature.height)*0.5f
             val depth=if(drawPreview!=null) 0f else shape.areas[id].depth
@@ -1701,8 +1701,27 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             return PointF(p.map { it.x }.average().toFloat(),
                 p.map { it.y }.average().toFloat())
         }
+        fun hitSizeCorner(x:Float,y:Float):Int {
+            if(drawAreaMode || regionStage!=RegionStage.SIZE) return -1
+            val outline=selectedPoints() ?: return -1
+            val step=outline.size/4
+            if(step<1) return -1
+            var nearest=-1
+            var minimum=dp(38).toFloat()*dp(38)
+            for(corner in 0..3) {
+                val point=outline[corner*step]
+                val dx=point.x-x
+                val dy=point.y-y
+                val distance=dx*dx+dy*dy
+                if(distance<minimum) {
+                    nearest=corner
+                    minimum=distance
+                }
+            }
+            return nearest
+        }
         fun hitCurveEdge(x:Float,y:Float):Int {
-            if(drawAreaMode || regionKind!=2) return -1
+            if(drawAreaMode || regionStage!=RegionStage.CURVE || regionKind!=2) return -1
             val outline=selectedPoints() ?: return -1
             if(outline.size!=32) return -1
             var best=-1
@@ -1720,6 +1739,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             return best
         }
         fun hitPull(x: Float,y: Float): Boolean {
+            if(drawAreaMode || regionStage!=RegionStage.PULL) return false
             val p=center() ?: return false
             val dx=x-p.x
             val dy=y-p.y
@@ -1747,7 +1767,23 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 }
                 return
             }
-            if(regionKind==2 && p.size==32) {
+            if(regionStage==RegionStage.SIZE) {
+                // Golden corner handles are the explicit sizing pass.
+                // Each drags the selected corner while the opposite stays put.
+                paint.style=Paint.Style.FILL
+                val spacing=p.size/4
+                for(corner in 0..3) {
+                    val point=p[corner*spacing]
+                    paint.color=Color.rgb(32,48,60)
+                    canvas.drawCircle(point.x,point.y,dp(19).toFloat(),paint)
+                    paint.color=Color.rgb(255,209,88)
+                    canvas.drawCircle(point.x,point.y,dp(13).toFloat(),paint)
+                    paint.color=Color.WHITE
+                    canvas.drawCircle(point.x,point.y,dp(4).toFloat(),paint)
+                }
+                return
+            }
+            if(regionStage==RegionStage.CURVE && regionKind==2 && p.size==32) {
                 paint.style=Paint.Style.FILL
                 for(side in 0..3) {
                     val midpoint=p[side*8+4]
@@ -1757,6 +1793,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     canvas.drawCircle(midpoint.x,midpoint.y,dp(10).toFloat(),paint)
                 }
             }
+            if(regionStage!=RegionStage.PULL) return
             val x=p.map { it.x }.average().toFloat()
             val y=p.map { it.y }.average().toFloat()
             paint.style=Paint.Style.FILL
