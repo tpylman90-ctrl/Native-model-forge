@@ -1232,6 +1232,41 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             offsetV=offsetV,depth=0f)
     }
 
+    private fun regionCorners(area:FaceArea):List<FaceUv> {
+        val u=0.5f+area.offsetU*(1f-area.width)*0.5f
+        val v=0.5f+area.offsetV*(1f-area.height)*0.5f
+        return listOf(
+            FaceUv(u-area.width*0.5f,v-area.height*0.5f),
+            FaceUv(u+area.width*0.5f,v-area.height*0.5f),
+            FaceUv(u+area.width*0.5f,v+area.height*0.5f),
+            FaceUv(u-area.width*0.5f,v+area.height*0.5f)
+        )
+    }
+
+    /** Preserve the opposite corner, existing depth and curved edges while
+     * stretching the selected outline. Existing negative bulges are clamped
+     * if a new size would otherwise push them outside the host face. */
+    private fun resizeArea(area:FaceArea,opposite:FaceUv,moving:FaceUv):FaceArea {
+        val frame=drawnArea(opposite,moving)
+        val result=area.copy(
+            width=frame.width,height=frame.height,
+            offsetU=frame.offsetU,offsetV=frame.offsetV)
+        if(result.kind!=2) return result.copy(curves=List(4) { 0f })
+        val cu=0.5f+result.offsetU*(1f-result.width)*0.5f
+        val cv=0.5f+result.offsetV*(1f-result.height)*0.5f
+        val minSide=minOf(result.width,result.height)
+        val margins=listOf(
+            cv-result.height*0.5f,
+            1f-(cu+result.width*0.5f),
+            1f-(cv+result.height*0.5f),
+            cu-result.width*0.5f)
+        val safeCurves=List(4) { edge ->
+            val lower=-minOf(0.2f,0.75f*margins[edge].coerceAtLeast(0f)/minSide)
+            result.curves[edge].coerceIn(lower,0.2f)
+        }
+        return result.copy(curves=safeCurves)
+    }
+
     private fun bendArea(area:FaceArea,edge:Int,delta:FaceUv):FaceArea {
         if(edge !in 0..3) return area
         val shortSide=minOf(area.width,area.height)
