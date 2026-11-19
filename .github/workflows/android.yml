@@ -119,7 +119,7 @@ jobs:
           assert match, "Cannot find APK signing certificate SHA-256"
           assert match.group(1).lower() == expected, "APK no longer uses the pinned dev signing key"
           assert "package: name='com.modelforge.nativeeditor.dev'" in badging, "DEV package ID missing"
-          assert "versionCode='11'" in badging, "DEV versionCode missing"
+          assert "versionCode='12'" in badging, "DEV versionCode missing"
           assert "Model Forge DEV" in badging, "DEV app label missing"
           print("DEV_SIGNING: PASS same pinned signing certificate, isolated application ID, versionCode and label")
           PY
@@ -161,6 +161,27 @@ jobs:
           assert "return true" in ui[ui.index("private fun commitRegion("):ui.index("private fun handleFaceGesture(")]
           assert "if(commitRegion(face,region.copy(kind=2,depth=0f)))" in ui
           print("CURVED_FACE_JNI: PASS valid type 2, failure-aware UI and regression guard")
+          PY
+      - name: Guard draw-size-curve-pull interaction stages
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path("app/src/main/java/com/modelforge/nativeeditor/MainActivity.kt").read_text()
+          assert "private enum class RegionStage { SIZE, CURVE, PULL }" in s
+          assert 'regionStageButton = button("NEXT: CURVE")' in s
+          assert "RegionStage.SIZE -> RegionStage.CURVE" in s
+          assert "RegionStage.CURVE -> RegionStage.PULL" in s
+          assert "RegionStage.PULL -> RegionStage.SIZE" in s
+          assert "fun hitSizeCorner(" in s and "sizeCornerIndex=corner" in s
+          assert "resizeArea(base,anchor,moving)" in s
+          assert "sizeOppositeCorner=regionCorners(editable)[(corner+2)%4]" in s
+          assert "sizeLiveArea ?: edgeLiveArea" in s
+          assert "commitRegion(face,resized)" in s
+          assert "regionStage==RegionStage.CURVE" in s
+          assert "regionStage==RegionStage.PULL" in s
+          assert "regionStage=RegionStage.SIZE" in s[s.index("if(region!=null && dx*dx"): ]
+          assert "viewer.onTouchEvent(event)" in s
+          print("REGION_SIZE_STAGE: PASS live corner resize, step transitions and camera regression")
           PY
       - name: Audit APK includes model core, DEX and manifest
         shell: bash

@@ -72,6 +72,12 @@ The first drawing pass supports one four-sided region per original face, four in
 
 The initial v0.7 phone test revealed **Area not applied: nonintegral face shape code** and bent edges snapping straight. Cause: the Android JNI parser was limited to face kinds -1 through 1 while the new four-edge curved region is type 2. v0.7.1 shares one checked face-type decoder between native host tests and JNI, accepts kind 2, and adds tests for curved zero-depth drafts and subsequently pulled geometry. Android now reports the region as saved only after its native commit succeeds. Development package/signing identity is unchanged and versionCode 11 installs over DEV v0.7. User device acceptance remains required.
 
+## v0.7.2 explicit region sizing stage
+
+Following the v0.7.1 phone confirmation that bending works, touch drawing has been refined into **DRAW → SIZE → CURVE → PULL**. After drawing an area, **gold corner handles** appear and stretch the selected rectangle with the opposite corner anchored. The on-screen **NEXT: CURVE** control advances to cyan edge bending. **NEXT: PULL** enables the white center handle, and **EDIT SIZE** returns to the sizing stage for further adjustment. Dragged size changes are committed as native editable face-region parameters with Undo/Redo and project recovery. Curved edges and existing extrusion depth are retained during resizing (incompatible negative bulges are bounded within the face). Existing numeric width/height/position controls still work.
+
+Only the generated box's original faces are editable, still with one selected region per face. This is not arbitrary vertex-based sculpting or imported-GLB topology editing. See [milestone 07](docs/FOUNDATION_MILESTONE_07.md).
+
 ## First real-user gate
 
 A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.

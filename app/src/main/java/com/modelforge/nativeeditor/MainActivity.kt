@@ -86,6 +86,14 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private var faceMode = false
     private lateinit var drawRegionButton: Button
     private lateinit var regionCurveButton: Button
+    // Explicit touch workflow: DRAW -> SIZE -> CURVE -> PULL.
+    private enum class RegionStage { SIZE, CURVE, PULL }
+    private var regionStage = RegionStage.SIZE
+    private lateinit var regionStageButton: Button
+    private var sizeCornerIndex = -1
+    private var sizeOppositeCorner: FaceUv? = null
+    private var sizeBaseArea: FaceArea? = null
+    private var sizeLiveArea: FaceArea? = null
     private var drawAreaMode = false
     private var drawStartUv: FaceUv? = null
     private var drawPreview: FaceArea? = null
@@ -317,6 +325,17 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         padParams.bottomMargin = dp(8)
         canvas.addView(orbitPad, padParams)
 
+        // Keep the next modeling step available even with the tool drawer hidden.
+        // This button only occupies the top-right corner below the status line.
+        regionStageButton = button("NEXT: CURVE") { advanceRegionStage() }
+        regionStageButton.textSize=13f
+        val nextStepParams=FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, dp(48), Gravity.TOP or Gravity.END)
+        nextStepParams.topMargin=dp(58)
+        nextStepParams.rightMargin=dp(10)
+        canvas.addView(regionStageButton,nextStepParams)
+        regionStageButton.visibility=View.GONE
+
         drawerToggle = button("▼ HIDE TOOLS") { setDrawerVisible(drawer.visibility != View.VISIBLE) }
         drawerToggle.textSize = 16f
         drawerToggle.minimumHeight = dp(52)
@@ -486,7 +505,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         directShapeMode = !directShapeMode
         if (directShapeMode) {
             faceMode = false; drawAreaMode = false; selectedFace = null
-            drawPreview=null; edgeDragIndex=-1
+            drawPreview=null; resetRegionDrag()
         }
         syncShapeUi()
         status.text = if (directShapeMode)
@@ -503,7 +522,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if (faceMode) directShapeMode = false
         else drawAreaMode=false
         drawPreview=null
-        edgeDragIndex=-1
+        resetRegionDrag()
+        regionStage=RegionStage.SIZE
         selectedFace = null
         syncShapeUi()
         status.text = if (faceMode) "FACE MODE: tap a face, then drag the white circle or enter metres"
@@ -521,7 +541,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         drawStartUv=null
         drawPreview=null
         drawingFace=-1
-        edgeDragIndex=-1
+        resetRegionDrag()
+        regionStage=RegionStage.SIZE
         selectedFace=null
         syncShapeUi()
         status.text=if(drawAreaMode) "DRAW AREA: touch a face and drag out your selection"
@@ -529,14 +550,48 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if(drawAreaMode) setDrawerVisible(false)
     }
 
+    private fun resetRegionDrag() {
+        sizeCornerIndex=-1
+        sizeOppositeCorner=null
+        sizeBaseArea=null
+        sizeLiveArea=null
+        edgeDragIndex=-1
+        edgeStartUv=null
+        edgeStartArea=null
+        edgeLiveArea=null
+        faceDragHandle=false
+    }
+
+    private fun advanceRegionStage() {
+        if(!faceMode || selectedFace==null || drawAreaMode) return
+        regionStage=when(regionStage) {
+            RegionStage.SIZE -> RegionStage.CURVE
+            RegionStage.CURVE -> RegionStage.PULL
+            RegionStage.PULL -> RegionStage.SIZE
+        }
+        resetRegionDrag()
+        syncShapeUi()
+        status.text=stageInstructions()
+    }
+
+    private fun stageInstructions():String = when {
+        drawAreaMode -> "DRAW AREA: touch one point and drag to stretch the region"
+        regionStage==RegionStage.SIZE ->
+            "SIZE: drag gold corner handles • NEXT: CURVE when ready"
+        regionStage==RegionStage.CURVE ->
+            "CURVE: bend cyan edge handles • NEXT: PULL when ready"
+        else -> "PULL: drag white handle to raise or recess • EDIT SIZE to change area"
+    }
+
     private fun setDrawerVisible(opened: Boolean) {
         drawer.visibility = if (opened) View.VISIBLE else View.GONE
         drawerScroll.visibility = if (opened) View.VISIBLE else View.GONE
         drawerToggle.text = if (opened) "▼ HIDE TOOLS" else "▲ OPEN TOOLS"
-        status.text = if(drawAreaMode)
-            "DRAW AREA: drag from first corner to opposite corner"
+        status.text = if(faceMode && selectedFace!=null) stageInstructions()
+        else if(drawAreaMode)
+            "DRAW AREA: touch a face and drag to choose size"
         else if (faceMode)
-            "FACE MODE: tap surface • bend curved edges • or pull"
+            "FACE MODE: select a face or use DRAW AREA"
         else if (directShapeMode)
             "EDIT TOP: drag colored handles • other gestures still orbit"
         else if (opened) "Right joystick: orbit • pinch: zoom • drag: rotate"
@@ -715,11 +770,20 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         shiftSlider.isEnabled = shape != null
         if (shape == null) {
             directShapeMode=false;faceMode=false;drawAreaMode=false
-            selectedFace=null;drawPreview=null;edgeDragIndex=-1
+            selectedFace=null;drawPreview=null;resetRegionDrag()
         }
         if (::drawRegionButton.isInitialized) {
             drawRegionButton.isEnabled=shape!=null
             drawRegionButton.text=if(drawAreaMode) "● DRAWING AREA" else "▱ DRAW AREA"
+        }
+        if (::regionStageButton.isInitialized) {
+            regionStageButton.visibility=if(faceMode && selectedFace!=null &&
+                !drawAreaMode) View.VISIBLE else View.GONE
+            regionStageButton.text=when(regionStage) {
+                RegionStage.SIZE -> "NEXT: CURVE"
+                RegionStage.CURVE -> "NEXT: PULL"
+                RegionStage.PULL -> "EDIT SIZE"
+            }
         }
         if (::faceButton.isInitialized) {
             faceButton.isEnabled = shape != null
@@ -1168,6 +1232,41 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             offsetV=offsetV,depth=0f)
     }
 
+    private fun regionCorners(area:FaceArea):List<FaceUv> {
+        val u=0.5f+area.offsetU*(1f-area.width)*0.5f
+        val v=0.5f+area.offsetV*(1f-area.height)*0.5f
+        return listOf(
+            FaceUv(u-area.width*0.5f,v-area.height*0.5f),
+            FaceUv(u+area.width*0.5f,v-area.height*0.5f),
+            FaceUv(u+area.width*0.5f,v+area.height*0.5f),
+            FaceUv(u-area.width*0.5f,v+area.height*0.5f)
+        )
+    }
+
+    /** Preserve the opposite corner, existing depth and curved edges while
+     * stretching the selected outline. Existing negative bulges are clamped
+     * if a new size would otherwise push them outside the host face. */
+    private fun resizeArea(area:FaceArea,opposite:FaceUv,moving:FaceUv):FaceArea {
+        val frame=drawnArea(opposite,moving)
+        val result=area.copy(
+            width=frame.width,height=frame.height,
+            offsetU=frame.offsetU,offsetV=frame.offsetV)
+        if(result.kind!=2) return result.copy(curves=List(4) { 0f })
+        val cu=0.5f+result.offsetU*(1f-result.width)*0.5f
+        val cv=0.5f+result.offsetV*(1f-result.height)*0.5f
+        val minSide=minOf(result.width,result.height)
+        val margins=listOf(
+            cv-result.height*0.5f,
+            1f-(cu+result.width*0.5f),
+            1f-(cv+result.height*0.5f),
+            cu-result.width*0.5f)
+        val safeCurves=List(4) { edge ->
+            val lower=-minOf(0.2f,0.75f*margins[edge].coerceAtLeast(0f)/minSide)
+            result.curves[edge].coerceIn(lower,0.2f)
+        }
+        return result.copy(curves=safeCurves)
+    }
+
     private fun bendArea(area:FaceArea,edge:Int,delta:FaceUv):FaceArea {
         if(edge !in 0..3) return area
         val shortSide=minOf(area.width,area.height)
@@ -1327,7 +1426,23 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     return true
                 }
                 val existing=selectedFace
-                if(existing!=null) {
+                if(existing!=null && regionStage==RegionStage.SIZE) {
+                    val corner=faceOverlay.hitSizeCorner(event.x,event.y)
+                    if(corner>=0) {
+                        val shape=currentShape ?: return false
+                        val previous=shape.areas[existing]
+                        val editable=if(previous.kind>=0) previous
+                            else areaFromControls(0f).copy(kind=2)
+                        sizeCornerIndex=corner
+                        sizeBaseArea=editable
+                        sizeLiveArea=editable
+                        sizeOppositeCorner=regionCorners(editable)[(corner+2)%4]
+                        faceOverlay.invalidate()
+                        status.text="SIZE: drag gold corner to set width and height"
+                        return true
+                    }
+                }
+                if(existing!=null && regionStage==RegionStage.CURVE) {
                     val edge=faceOverlay.hitCurveEdge(event.x,event.y)
                     if(edge>=0) {
                         val uv=screenFaceUv(existing,event.x,event.y) ?: return false
@@ -1343,7 +1458,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                         return true
                     }
                 }
-                faceDragHandle=existing!=null && faceOverlay.hitPull(event.x,event.y)
+                faceDragHandle=existing!=null && regionStage==RegionStage.PULL &&
+                    faceOverlay.hitPull(event.x,event.y)
                 if(faceDragHandle) {
                     val shape=currentShape ?: return false
                     faceDragBase=shape.areas[existing ?: return false].depth
@@ -1362,6 +1478,18 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     status.text=faceName(drawingFace)+": " +
                         (preview.width*100).toInt() + "% × " +
                         (preview.height*100).toInt() + "% • release to keep"
+                    return true
+                }
+                if(sizeCornerIndex>=0) {
+                    val face=selectedFace ?: return true
+                    val anchor=sizeOppositeCorner ?: return true
+                    val moving=screenFaceUv(face,event.x,event.y) ?: return true
+                    val base=sizeBaseArea ?: return true
+                    val adjusted=resizeArea(base,anchor,moving)
+                    sizeLiveArea=adjusted
+                    faceOverlay.invalidate()
+                    status.text="SIZE: " + (adjusted.width*100).toInt() + "% wide × " +
+                        (adjusted.height*100).toInt() + "% tall • release to save"
                     return true
                 }
                 if(edgeDragIndex>=0) {
@@ -1405,13 +1533,27 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     if(region!=null && dx*dx+dy*dy>dp(25)*dp(25)) {
                         selectedFace=face
                         regionKind=2
+                        regionStage=RegionStage.SIZE
                         if(commitRegion(face,region.copy(kind=2,depth=0f))) {
-                            status.text="Area saved • bend cyan edges • PULL to shape"
+                            status.text=stageInstructions()
                         }
                     } else {
                         status.text="Area too small • touch and drag farther to size"
                     }
                     syncShapeUi()
+                    faceOverlay.invalidate()
+                    return true
+                }
+                if(sizeCornerIndex>=0) {
+                    val face=selectedFace
+                    val resized=sizeLiveArea
+                    sizeCornerIndex=-1
+                    sizeOppositeCorner=null
+                    sizeBaseArea=null
+                    sizeLiveArea=null
+                    if(face!=null && resized!=null && commitRegion(face,resized)) {
+                        status.text=stageInstructions()
+                    }
                     faceOverlay.invalidate()
                     return true
                 }
@@ -1442,28 +1584,26 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     edgeLiveArea=null
                     val face=selectedFace
                     if(face!=null) {
+                        regionStage=RegionStage.SIZE
                         syncRegionUi(face)
-                        status.text=faceName(face)+
-                            " selected • DRAW AREA or bend cyan edge handles"
+                        status.text=stageInstructions()
                     } else status.text="No face found • tap a solid visible surface"
                     syncShapeUi()
                 }
                 return false // Pass camera release through unchanged.
             }
             MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> {
-                val captured=(drawingFace>=0 || edgeDragIndex>=0 || faceDragHandle)
+                val captured=(drawingFace>=0 || sizeCornerIndex>=0 ||
+                    edgeDragIndex>=0 || faceDragHandle)
                 drawingFace=-1
                 drawStartUv=null
                 drawPreview=null
-                edgeDragIndex=-1
-                edgeStartUv=null
-                edgeStartArea=null
-                edgeLiveArea=null
-                faceDragHandle=false
+                resetRegionDrag()
                 if(captured) faceOverlay.invalidate()
                 return captured
             }
-            else -> return drawingFace>=0 || edgeDragIndex>=0 || faceDragHandle
+            else -> return drawingFace>=0 || sizeCornerIndex>=0 ||
+                edgeDragIndex>=0 || faceDragHandle
         }
     }
 
@@ -1484,7 +1624,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             val outer=ids.map { vi ->
                 FloatArray(3) { axis -> base[start+vi*6+axis] }
             }
-            val feature=drawPreview ?: edgeLiveArea ?: areaFromControls(0f)
+            val feature=drawPreview ?: sizeLiveArea ?: edgeLiveArea ?: areaFromControls(0f)
             val cu=0.5f+feature.offsetU*(1-feature.width)*0.5f
             val cv=0.5f+feature.offsetV*(1-feature.height)*0.5f
             val depth=if(drawPreview!=null) 0f else shape.areas[id].depth
@@ -1561,8 +1701,27 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             return PointF(p.map { it.x }.average().toFloat(),
                 p.map { it.y }.average().toFloat())
         }
+        fun hitSizeCorner(x:Float,y:Float):Int {
+            if(drawAreaMode || regionStage!=RegionStage.SIZE) return -1
+            val outline=selectedPoints() ?: return -1
+            val step=outline.size/4
+            if(step<1) return -1
+            var nearest=-1
+            var minimum=dp(38).toFloat()*dp(38)
+            for(corner in 0..3) {
+                val point=outline[corner*step]
+                val dx=point.x-x
+                val dy=point.y-y
+                val distance=dx*dx+dy*dy
+                if(distance<minimum) {
+                    nearest=corner
+                    minimum=distance
+                }
+            }
+            return nearest
+        }
         fun hitCurveEdge(x:Float,y:Float):Int {
-            if(drawAreaMode || regionKind!=2) return -1
+            if(drawAreaMode || regionStage!=RegionStage.CURVE || regionKind!=2) return -1
             val outline=selectedPoints() ?: return -1
             if(outline.size!=32) return -1
             var best=-1
@@ -1580,6 +1739,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             return best
         }
         fun hitPull(x: Float,y: Float): Boolean {
+            if(drawAreaMode || regionStage!=RegionStage.PULL) return false
             val p=center() ?: return false
             val dx=x-p.x
             val dy=y-p.y
@@ -1607,7 +1767,23 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 }
                 return
             }
-            if(regionKind==2 && p.size==32) {
+            if(regionStage==RegionStage.SIZE) {
+                // Golden corner handles are the explicit sizing pass.
+                // Each drags the selected corner while the opposite stays put.
+                paint.style=Paint.Style.FILL
+                val spacing=p.size/4
+                for(corner in 0..3) {
+                    val point=p[corner*spacing]
+                    paint.color=Color.rgb(32,48,60)
+                    canvas.drawCircle(point.x,point.y,dp(19).toFloat(),paint)
+                    paint.color=Color.rgb(255,209,88)
+                    canvas.drawCircle(point.x,point.y,dp(13).toFloat(),paint)
+                    paint.color=Color.WHITE
+                    canvas.drawCircle(point.x,point.y,dp(4).toFloat(),paint)
+                }
+                return
+            }
+            if(regionStage==RegionStage.CURVE && regionKind==2 && p.size==32) {
                 paint.style=Paint.Style.FILL
                 for(side in 0..3) {
                     val midpoint=p[side*8+4]
@@ -1617,6 +1793,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     canvas.drawCircle(midpoint.x,midpoint.y,dp(10).toFloat(),paint)
                 }
             }
+            if(regionStage!=RegionStage.PULL) return
             val x=p.map { it.x }.average().toFloat()
             val y=p.map { it.y }.average().toFloat()
             paint.style=Paint.Style.FILL
