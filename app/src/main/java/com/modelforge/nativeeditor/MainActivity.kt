@@ -563,6 +563,185 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         else "View mode: drag to orbit • right joystick • pinch to zoom"
     }
 
+    private fun launchStudioGuide() {
+        studioActive=true
+        if(currentShape==null) studioIndex=0
+        updateStudioGuide()
+        status.text="STUDIO GUIDE: choose a step and follow its controls"
+        if(!currentShapeIsUsable()) {
+            toast("Start with a blank or shaped base. Each step explains its next action.")
+        }
+    }
+
+    private fun currentShapeIsUsable():Boolean = currentShape!=null && !importedPreview
+
+    private fun updateStudioGuide() {
+        if(!::studioOverlay.isInitialized) return
+        studioOverlay.visibility=if(studioActive) View.VISIBLE else View.GONE
+        if(!studioActive) return
+        studioIndex=studioIndex.coerceIn(0,StudioTask.entries.size-1)
+        val titles=arrayOf(
+            "01 / 08  CREATE A BASE",
+            "02 / 08  SHAPE THE BODY",
+            "03 / 08  DRAW A DETAIL",
+            "04 / 08  SET ITS SIZE",
+            "05 / 08  CURVE THE SIDES",
+            "06 / 08  RAISE OR RECESS",
+            "07 / 08  MIRROR A DETAIL",
+            "08 / 08  SAVE YOUR WORK")
+        val tips=arrayOf(
+            "Start from a blank, hull or architectural block. All can be reshaped.",
+            "Drag the colored top handles, or use exact dimension controls.",
+            "Draw a region on a face. Your touch defines its initial footprint.",
+            "Drag GOLD corners; the opposite corner stays fixed.",
+            "Bend the four CYAN edge handles. Undo can restore any bend.",
+            "Drag the WHITE handle for depth; negative values make a recess.",
+            "Choose a saved face detail and reflect it onto the opposite face.",
+            "Save an EDITABLE project first. Export GLB for games and sharing.")
+        val actions=arrayOf(
+            "CHOOSE BASE", "SHAPE ON MODEL", "START DRAWING",
+            "EDIT SIZE", "BEND EDGES", "EDIT DEPTH",
+            "MIRROR WIZARD", "SAVE OR EXPORT")
+        studioTitle.text=titles[studioIndex]
+        studioTip.text=tips[studioIndex]
+        studioAction.text=actions[studioIndex]
+        studioBack.isEnabled=studioIndex>0
+        studioNext.isEnabled=studioIndex<StudioTask.entries.size-1
+    }
+
+    private fun moveStudio(delta:Int) {
+        studioIndex=(studioIndex+delta).coerceIn(0,StudioTask.entries.size-1)
+        updateStudioGuide()
+        status.text="STUDIO GUIDE: "+studioTitle.text
+    }
+
+    private fun performStudioTask() {
+        val task=StudioTask.entries[studioIndex]
+        if(task==StudioTask.BASE) {
+            chooseStudioStarter()
+            return
+        }
+        if(task==StudioTask.EXPORT) {
+            val choices=arrayOf(
+                "Save editable project (.mforge) • preserves your modeling controls",
+                "Export game-ready GLB • portable triangle mesh",
+                "Open an earlier editable project"
+            )
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Save and share • Choose format")
+                .setItems(choices) { _,which ->
+                    when(which) {
+                        0 -> requestExportProject()
+                        1 -> requestExport()
+                        else -> requestOpenProject()
+                    }
+                }.setNegativeButton("CANCEL",null).show()
+            return
+        }
+        if(!currentShapeIsUsable()) {
+            toast("Create an editable base first, then continue to this stage.")
+            studioIndex=0
+            updateStudioGuide()
+            return
+        }
+        when(task) {
+            StudioTask.SHAPE -> {
+                directShapeMode=true
+                faceMode=false;drawAreaMode=false;selectedFace=null
+                resetRegionDrag()
+                syncShapeUi()
+                setDrawerVisible(false)
+                status.text="SHAPE: drag LEAN, WIDTH and LENGTH on top of the model"
+            }
+            StudioTask.DRAW -> {
+                if(!drawAreaMode) toggleDrawArea()
+                status.text="DRAW: touch a visible face and stretch the selected area"
+            }
+            StudioTask.SIZE,StudioTask.CURVE,StudioTask.PULL -> {
+                faceMode=true
+                drawAreaMode=false
+                directShapeMode=false
+                regionStage=when(task) {
+                    StudioTask.SIZE->RegionStage.SIZE
+                    StudioTask.CURVE->RegionStage.CURVE
+                    else->RegionStage.PULL
+                }
+                resetRegionDrag()
+                syncShapeUi()
+                setDrawerVisible(false)
+                status.text=if(selectedFace!=null) stageInstructions()
+                    else "Tap a face to select it, then repeat this guide step"
+            }
+            StudioTask.MIRROR -> launchMirrorWizard()
+            else -> Unit
+        }
+    }
+
+    private fun chooseStudioStarter() {
+        val presets=arrayOf(
+            "Simple block • 2 × 1 × 3 m",
+            "Hovercraft hull blank • 4.5 × 2.1 × 8.4 m",
+            "Building block • 5 × 3 × 6 m",
+            "Small panel blank • 1.5 × 0.3 × 2.5 m"
+        )
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Create a base • Step 1 of 8")
+            .setMessage("Choose a starting shape. Every option remains fully editable using the same native modeling controls.")
+            .setItems(presets) { _,which ->
+                val shapes=listOf(
+                    Shape(2f,1f,3f),
+                    Shape(4.5f,2.1f,8.4f,0.82f,0.9f,0f),
+                    Shape(5f,3f,6f),
+                    Shape(1.5f,0.3f,2.5f)
+                )
+                val preset=shapes[which]
+                if(currentShape!=null) {
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle("Replace current editable base?")
+                        .setMessage("Creating a new base replaces the active editable shape and its session history. Save the current .mforge project first if you want to keep it.")
+                        .setNegativeButton("KEEP CURRENT",null)
+                        .setPositiveButton("CREATE NEW") { _,_ -> createStudioPreset(preset) }
+                        .show()
+                } else createStudioPreset(preset)
+            }
+            .setNegativeButton("CANCEL",null).show()
+    }
+
+    private fun createStudioPreset(preset:Shape) {
+        val oldShape=currentShape
+        val oldNative=if(oldShape!=null) NativeProject.snapshot() else null
+        val oldGlb=currentGlb
+        val oldName=currentName
+        val oldImported=importedPreview
+        try {
+            // Test geometry first, before replacing the previous native document.
+            NativeGeometry.generateProfiledBox(
+                preset.width,preset.height,preset.length,
+                preset.topWidth,preset.topLength,preset.shiftX)
+            NativeProject.resetAndCreate(
+                preset.width,preset.height,preset.length,
+                preset.topWidth,preset.topLength,preset.shiftX)
+            if(!renderShape(preset)) throw IllegalStateException("New base could not render")
+            saveWorkingShape()
+            directShapeMode=false;faceMode=false;drawAreaMode=false;selectedFace=null
+            resetRegionDrag()
+            syncShapeUi()
+            studioIndex=1
+            updateStudioGuide()
+            status.text="Base created • NEXT: shape the body or draw a detail"
+            toast("Base created. Continue with Step 2 to reshape it.")
+        } catch(error:Exception) {
+            try {
+                if(oldNative!=null) NativeProject.load(oldNative) else NativeProject.clear()
+                if(oldShape!=null) renderShape(oldShape)
+                else if(oldGlb!=null) present(oldGlb,oldName,oldImported)
+            } catch(rollback:Exception) {
+                Log.e("ModelForgeStudio","Could not restore earlier shape",rollback)
+            }
+            toast("Base not created: "+(error.message?:"unsupported dimensions"))
+        }
+    }
+
     private fun toggleFaceMode() {
         if (currentShape == null) {
             toast("Face selection works only on editable generated boxes.")
