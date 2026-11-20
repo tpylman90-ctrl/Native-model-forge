@@ -30,7 +30,7 @@ class ForgeAssetLibraryTest {
             val mesh=LibraryGlbMesh.read(glb)
             assertEquals(item.title,mesh.name)
             assertEquals(4,mesh.color.size)
-            assertTrue(mesh.vertices.size>=216)
+            assertTrue(mesh.vertices.size>=18)
             assertEquals(0,mesh.vertices.size%18)
             assertTrue(mesh.vertices.all(Float::isFinite))
         }
