@@ -44,6 +44,10 @@ public:
                  std::array<double,3> topProfile, std::uint64_t expectedRevision);
     void setFaceRegion(std::uint64_t objectId,int faceId,const FaceRegion& region,
                        std::uint64_t expectedRevision);
+    // Mirror a selected face region onto its opposite face in ONE transaction.
+    // Returns destination face index; fails if occupied and overwrite=false.
+    int mirrorFaceRegion(std::uint64_t objectId,int sourceFace,bool overwrite,
+                         std::uint64_t expectedRevision);
     void rename(std::uint64_t objectId, std::string name,
                 std::uint64_t expectedRevision);
     void erase(std::uint64_t objectId, std::uint64_t expectedRevision);
