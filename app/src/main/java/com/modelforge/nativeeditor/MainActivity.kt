@@ -302,10 +302,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         topScroll.addView(top)
         main.addView(topScroll)
+        top.addView(button("✦ STUDIO") { launchStudioGuide() })
         top.addView(button("＋ NEW BOX") { createBox() })
         top.addView(button("OPEN GLB") { requestOpen() })
         top.addView(button("SAVE GLB") { requestExport() })
-        top.addView(button("STUDIO ✦") { launchStudioGuide() })
         top.addView(button("OPEN PROJECT") { requestOpenProject() })
         top.addView(button("SAVE PROJECT") { requestExportProject() })
         top.addView(button("?" ) { showHelp() })
@@ -481,6 +481,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         drawer.addView(button("REMOVE SELECTED FACE EDIT") { removeFaceEdit() })
         drawer.addView(textLabel("SYMMETRY • REPEAT AN EDIT ON THE OPPOSITE SIDE",13f,accent))
         drawer.addView(button("⧉ MIRROR SELECTED DETAIL") { launchMirrorWizard() })
+        drawer.addView(button("✓ MODEL CHECK") { showModelReport() })
         drawer.addView(textLabel("Each face keeps its own shape, size, and depth. Other faces stay intact.", 11f, muted))
         drawer.addView(textLabel("Offline-first • GLB export • Community sharing planned, not active", 11f, muted))
         syncShapeUi()
@@ -579,7 +580,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if(!::studioOverlay.isInitialized) return
         studioOverlay.visibility=if(studioActive) View.VISIBLE else View.GONE
         if(!studioActive) return
-        studioIndex=studioIndex.coerceIn(0,StudioTask.entries.size-1)
+        studioIndex=studioIndex.coerceIn(0,StudioTask.values().size-1)
         val titles=arrayOf(
             "01 / 08  CREATE A BASE",
             "02 / 08  SHAPE THE BODY",
@@ -606,24 +607,25 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         studioTip.text=tips[studioIndex]
         studioAction.text=actions[studioIndex]
         studioBack.isEnabled=studioIndex>0
-        studioNext.isEnabled=studioIndex<StudioTask.entries.size-1
+        studioNext.isEnabled=studioIndex<StudioTask.values().size-1
     }
 
     private fun moveStudio(delta:Int) {
-        studioIndex=(studioIndex+delta).coerceIn(0,StudioTask.entries.size-1)
+        studioIndex=(studioIndex+delta).coerceIn(0,StudioTask.values().size-1)
         updateStudioGuide()
         status.text="STUDIO GUIDE: "+studioTitle.text
     }
 
     private fun performStudioTask() {
-        val task=StudioTask.entries[studioIndex]
+        val task=StudioTask.values()[studioIndex]
         if(task==StudioTask.BASE) {
             chooseStudioStarter()
             return
         }
         if(task==StudioTask.EXPORT) {
             val choices=arrayOf(
-                "Save editable project (.mforge) • preserves your modeling controls",
+                "Check geometry quality and dimensions",
+                "Save editable project (.mforge) • preserves modeling controls",
                 "Export game-ready GLB • portable triangle mesh",
                 "Open an earlier editable project"
             )
@@ -631,8 +633,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 .setTitle("Save and share • Choose format")
                 .setItems(choices) { _,which ->
                     when(which) {
-                        0 -> requestExportProject()
-                        1 -> requestExport()
+                        0 -> showModelReport()
+                        1 -> requestExportProject()
+                        2 -> requestExport()
                         else -> requestOpenProject()
                     }
                 }.setNegativeButton("CANCEL",null).show()
