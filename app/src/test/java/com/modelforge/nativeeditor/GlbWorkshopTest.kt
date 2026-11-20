@@ -108,7 +108,7 @@ class GlbWorkshopTest {
         assertEquals("Original Metallic Paint",root.getAsJsonArray("materials")[0]
             .asJsonObject.get("name").asString)
         assertEquals(880,root.getAsJsonArray("buffers")[0].asJsonObject.get("byteLength").asInt)
-        assertEquals(1,root.getAsJsonArray("scenes")[0].asJsonObject
+        assertEquals(2,root.getAsJsonArray("scenes")[0].asJsonObject
             .getAsJsonArray("nodes")[2].asInt)
         assertEquals(3,GlbWorkshop.open(result).parts().size)
         assertArrayEquals(prior,project.undo())
