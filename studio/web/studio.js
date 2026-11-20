@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import createForgeCore from "./forge_core.js";
+import {encodeSession, decodeSession} from "./share_session.mjs";
 
 const el = (id) => document.getElementById(id);
 let core, model = null, activeFace = 4, state = null, modified = false, showWire = false;
@@ -124,6 +125,7 @@ function refresh(shouldFit=false,isEdit=true){
   el("model-title").textContent=state.name;
   el("revision").textContent="Rev "+state.revision;
   el("mesh-stats").textContent=(count/3).toLocaleString()+" triangles";
+  el("coop-source").textContent=state.name+" · revision "+state.revision+" · editable native .mforge";
   if(shouldFit)fit();
   selectFace(activeFace);
   if(isEdit)modified=true;
@@ -146,6 +148,26 @@ renderer.domElement.addEventListener("pointerup",e=>{
   const hits=raycaster.intersectObject(model,false);
   if(hits.length&&hits[0].face)selectFace(hits[0].face.materialIndex);
 });
+function viewAngle(angle){
+  if(!model)return;
+  const center=model.geometry.boundingBox.getCenter(new THREE.Vector3());
+  const distance=Math.max(.5,model.geometry.boundingBox.getSize(new THREE.Vector3()).length()*1.8);
+  const directions={
+    "front":new THREE.Vector3(0,.12,1),
+    "side":new THREE.Vector3(1,.14,0),
+    "top":new THREE.Vector3(0,1,.0001),
+    "three-quarter":new THREE.Vector3(.75,.5,1)
+  };
+  const dir=directions[angle];
+  if(!dir)return;
+  orbit.target.copy(center);
+  camera.position.copy(center).add(dir.normalize().multiplyScalar(distance));
+  orbit.update();
+}
+document.querySelectorAll("[data-angle]").forEach(button=>{
+  button.addEventListener("click",()=>viewAngle(button.dataset.angle));
+});
+
 el("face").addEventListener("change",()=>selectFace(Number(el("face").value)));
 el("fit").addEventListener("click",fit);
 el("wire").addEventListener("click",()=>{
@@ -221,7 +243,12 @@ el("open").addEventListener("change",async e=>{
 el("export").addEventListener("click",()=>safe(()=>{
   if(!model)throw new Error("No model available");
   const exporter=new GLTFExporter();
-  exporter.parse(model,data=>{
+  // Never bake temporary face selection tint or wireframe into the GLB.
+  const cleanMaterials=Array.from({length:6},()=>new THREE.MeshStandardMaterial({
+    color:0x8395aa,roughness:.42,metalness:.45,side:THREE.DoubleSide
+  }));
+  const cleanMesh=new THREE.Mesh(model.geometry,cleanMaterials);
+  exporter.parse(cleanMesh,data=>{
     download(stem()+".glb",data,"model/gltf-binary");
     notify("GLB mesh exported; save .mforge separately for editing");
   },e=>notify(e.message||String(e),true),{binary:true});
@@ -287,12 +314,74 @@ el("apply-command").addEventListener("click",()=>safe(()=>{
 window.addEventListener("beforeunload",e=>{
   if(modified){e.preventDefault();e.returnValue="";}
 });
+// Shared baseline can be updated by the collaborator through GitHub.
+// The browser fetches it on demand, without authentication or write tokens.
+async function loadSharedModel(confirmReplacement=true){
+  if(confirmReplacement && modified &&
+     !confirm("Replace your local edits with the shared hull? Save or copy a co-op link first."))return;
+  const response=await fetch("./sessions/hovercraft-hull.mforge?v="+Date.now(),{cache:"no-store"});
+  if(!response.ok)throw new Error("Could not fetch shared hull: HTTP "+response.status);
+  const text=await response.text();
+  must("mf_load_project",["string"],[text]);
+  activeFace=4;refresh(true,false);modified=false;
+  if(location.hash.startsWith("#mf1="))
+    history.replaceState(null,"",location.pathname+location.search);
+  notify("Shared hovercraft loaded. Edit it, then copy your co-op link.");
+}
+el("shared-demo").addEventListener("click",async()=>{
+  try{await loadSharedModel();}catch(e){notify(e.message||String(e),true);}
+});
+async function copyText(text){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    await navigator.clipboard.writeText(text);return;
+  }
+  const box=document.createElement("textarea");
+  box.value=text;box.style.position="fixed";box.style.opacity="0";
+  document.body.appendChild(box);box.focus();box.select();
+  const copied=document.execCommand("copy");box.remove();
+  if(!copied)window.prompt("Copy this model link:",text);
+}
+el("copy-share").addEventListener("click",async()=>{
+  try{
+    const project=call("mf_save_project","string");
+    const url=new URL(window.location.href);
+    url.hash=encodeSession(project);
+    await copyText(url.toString());
+    notify("Co-op link copied. Paste it into our ChatGPT conversation to share this exact editable model.");
+  }catch(e){notify(e.message||String(e),true);}
+});
+el("screenshot").addEventListener("click",()=>safe(()=>{
+  renderer.render(scene,camera);
+  const image=renderer.domElement.toDataURL("image/png");
+  const a=document.createElement("a");a.href=image;a.download=stem()+"-inspection.png";
+  document.body.appendChild(a);a.click();a.remove();
+  notify("Screenshot saved. Attach it in chat for visual evaluation.");
+}));
 try{
   core=await createForgeCore();
-  must("mf_new_box",["number","number","number"],[4.5,1.8,8.4]);
-  refresh(true,false);el("loading").remove();
-  notify("Native C++ engine ready · tap a face to begin");
+  const linked=decodeSession(window.location.hash);
+  if(linked!==null){
+    must("mf_load_project",["string"],[linked]);
+    activeFace=4;refresh(true,false);modified=false;
+    notify("Co-op link opened. Exact editable project restored.");
+  }else{
+    try{await loadSharedModel(false);}
+    catch(e){
+      must("mf_new_box",["number","number","number"],[4.5,1.8,8.4]);
+      refresh(true,false);modified=false;
+      notify("Shared model unavailable; a blank native body was created: "+(e.message||e),true);
+    }
+  }
+  el("loading").remove();
 }catch(e){
-  el("loading").textContent="Studio failed to start: "+(e.message||String(e));
-  notify(e.message||String(e),true);
+  // A bad sharing link is recoverable and does not replace a saved Android model.
+  try{
+    if(!core)throw e;
+    must("mf_new_box",["number","number","number"],[4.5,1.8,8.4]);
+    refresh(true,false);modified=false;el("loading").remove();
+    notify("Link error: opened safe starter shape. "+(e.message||e),true);
+  }catch(inner){
+    el("loading").textContent="Studio failed to start: "+(inner.message||inner);
+    notify(inner.message||String(inner),true);
+  }
 }

@@ -38,4 +38,17 @@ assert.equal(call("mf_load_project",["string"],[first]),1);
 assert.equal(call("mf_vertex_count"),36);
 const ptr=call("mf_vertex_data");
 assert.ok(Number.isFinite(wasm.HEAPF32[ptr/4]));
+const sharedHull=fs.readFileSync(new URL("../web/sessions/hovercraft-hull.mforge",import.meta.url),"utf8");
+assert.equal(call("mf_load_project",["string"],[sharedHull]),1,"shared hull must load in native C++ document");
+const loaded=JSON.parse(call("mf_state_json",[],[],"string"));
+assert.equal(loaded.name,"Co-op Hover Hull 01");
+assert.equal(loaded.faces[0].kind,2);
+assert.equal(loaded.faces[4].kind,2);
+assert.ok(call("mf_vertex_count")>36,"shared hull must contain real surface geometry");
+const canonical=call("mf_save_project",[],[],"string");
+// Hand-authored decimal parameters normalize to 17-digit C++ output.
+assert.equal(call("mf_load_project",["string"],[canonical]),1);
+assert.equal(call("mf_save_project",[],[],"string"),canonical);
+console.log("SHARED_HULL_NATIVE: PASS project parses and tessellates in WebAssembly core");
+
 console.log("WASM_RUNTIME_SMOKE: PASS native geometry, curves, mirror, undo, atomic invalid edit, stale revision, reload");

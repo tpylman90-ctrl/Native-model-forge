@@ -18,7 +18,9 @@ jobs:
           cmake --build build/studio --parallel 2
           ctest --test-dir build/studio --output-on-failure
       - name: Check browser JavaScript syntax
-        run: node --check studio/web/studio.js
+        run: |
+          node --check studio/web/studio.js
+          node --test studio/tests/share_session.test.mjs
   studio-browser:
     needs: studio-native
     runs-on: ubuntu-latest
