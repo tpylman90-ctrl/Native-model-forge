@@ -121,6 +121,40 @@ void Document::setFaceRegion(std::uint64_t objectId,int faceId,
     validate(*match);
     commit(std::move(next));
 }
+int Document::mirrorFaceRegion(std::uint64_t objectId,int sourceFace,
+                               bool overwrite,std::uint64_t expected) {
+    assertRevision(expected);
+    reject(sourceFace<0 || sourceFace>5, "invalid source face index");
+    const int targetFace=sourceFace^1;
+    auto next=objects_;
+    auto match=std::find_if(next.begin(),next.end(),
+        [&](const ModelObject& obj){return obj.id==objectId;});
+    reject(match==next.end(),"unknown object ID");
+    reject(match->kind!=GeometryKind::PolygonMesh ||
+           match->sourceReference!="generated:profiled_box",
+           "mirroring requires a generated editable box");
+    const auto& source=match->faceRegions[static_cast<std::size_t>(sourceFace)];
+    reject(source.kind<0,"draw a region on the selected face before mirroring");
+    auto& target=match->faceRegions[static_cast<std::size_t>(targetFace)];
+    reject(target.kind>=0 && !overwrite,
+           "opposite face has an edit; explicit overwrite required");
+    FaceRegion reflected=source;
+    if(sourceFace<4) {
+        // Front/back and left/right use opposing local U axes.
+        reflected.offsetU=-source.offsetU;
+        reflected.curves={{source.curves[0],source.curves[3],
+                           source.curves[2],source.curves[1]}};
+    } else {
+        // Top/bottom use opposing local V axes.
+        reflected.offsetV=-source.offsetV;
+        reflected.curves={{source.curves[2],source.curves[1],
+                           source.curves[0],source.curves[3]}};
+    }
+    target=reflected;
+    validate(*match);
+    commit(std::move(next));
+    return targetFace;
+}
 void Document::rename(std::uint64_t objectId, std::string name,
                       std::uint64_t expected) {
     assertRevision(expected);
