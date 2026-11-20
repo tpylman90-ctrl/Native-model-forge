@@ -72,6 +72,15 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private lateinit var shapeOverlay: DirectShapeOverlay
     private lateinit var faceOverlay: FaceSelectionOverlay
     private lateinit var faceButton: Button
+    private enum class StudioTask { BASE, SHAPE, DRAW, SIZE, CURVE, PULL, MIRROR, EXPORT }
+    private var studioActive=false
+    private var studioIndex=0
+    private lateinit var studioOverlay: LinearLayout
+    private lateinit var studioTitle: TextView
+    private lateinit var studioTip: TextView
+    private lateinit var studioAction: Button
+    private lateinit var studioBack: Button
+    private lateinit var studioNext: Button
     private lateinit var extrudeDepthField: EditText
     private lateinit var faceSelectionText: TextView
     private lateinit var extrudeApplyButton: Button
@@ -329,6 +338,42 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         padParams.rightMargin = dp(6)
         padParams.bottomMargin = dp(8)
         canvas.addView(orbitPad, padParams)
+
+        studioOverlay=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setBackgroundColor(Color.argb(232,18,32,45))
+            setPadding(dp(9),dp(7),dp(9),dp(7))
+        }
+        studioTitle=textLabel("STUDIO GUIDE",13f,accent).also { studioOverlay.addView(it) }
+        studioTip=textLabel("One useful action at a time.",12f,text)
+            .also { studioOverlay.addView(it) }
+        studioAction=button("START") { performStudioTask() }.apply {
+            textSize=12f
+            minimumHeight=dp(42)
+        }
+        studioOverlay.addView(studioAction,LinearLayout.LayoutParams(-1,dp(42)))
+        val guideNav=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        studioOverlay.addView(guideNav)
+        studioBack=button("← BACK") { moveStudio(-1) }.apply {
+            textSize=11f
+            minimumHeight=dp(40)
+        }
+        studioNext=button("NEXT →") { moveStudio(1) }.apply {
+            textSize=11f
+            minimumHeight=dp(40)
+        }
+        guideNav.addView(studioBack,LinearLayout.LayoutParams(0,dp(40),1f))
+        guideNav.addView(studioNext,LinearLayout.LayoutParams(0,dp(40),1f))
+        studioOverlay.addView(button("CLOSE GUIDE") {
+            studioActive=false
+            updateStudioGuide()
+        }.apply { textSize=11f;minimumHeight=dp(37) },
+            LinearLayout.LayoutParams(-1,dp(37)))
+        val guideParams=FrameLayout.LayoutParams(dp(192),-2,Gravity.START or Gravity.BOTTOM)
+        guideParams.leftMargin=dp(6)
+        guideParams.bottomMargin=dp(8)
+        canvas.addView(studioOverlay,guideParams)
+        studioOverlay.visibility=View.GONE
 
         // Keep the next modeling step available even with the tool drawer hidden.
         // This button only occupies the top-right corner below the status line.
@@ -1536,7 +1581,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         try {
             val target=NativeProject.mirrorFaceRegion(source,overwrite)
             applied=true
-            require(target==source xor 1) { "Unexpected mirror destination" }
+            require(target==(source xor 1)) { "Unexpected mirror destination" }
             val reflected=fromNative() ?: throw IllegalArgumentException("Mirrored project is unavailable")
             if(!renderShape(reflected)) throw IllegalStateException("Mirror could not be rendered")
             saveWorkingShape()
