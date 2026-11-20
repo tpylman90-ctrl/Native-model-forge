@@ -45,8 +45,9 @@ class GlbMeshDeformTest {
         val accessor=root.getAsJsonArray("accessors")[accessorId].asJsonObject
         val view=root.getAsJsonArray("bufferViews")[accessor.get("bufferView").asInt].asJsonObject
         val stride=view.get("byteStride")?.asInt?:12
-        val offset=(view.get("byteOffset")?.asInt?:0)+(accessor.get("byteOffset")?.asInt?:0)
-            +index*stride
+        val viewStart=view.get("byteOffset")?.asInt ?: 0
+        val accessorOffset=accessor.get("byteOffset")?.asInt ?: 0
+        val offset=viewStart+accessorOffset+index*stride
         val bin=buffer(bytes)
         return floatArrayOf(bin.getFloat(offset),bin.getFloat(offset+4),bin.getFloat(offset+8))
     }
