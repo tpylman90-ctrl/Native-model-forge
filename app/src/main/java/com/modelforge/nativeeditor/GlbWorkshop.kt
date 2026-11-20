@@ -277,7 +277,7 @@ class GlbWorkshop private constructor(
 
     fun addPart(name:String,packed:FloatArray,color:FloatArray):ByteArray {
         require(name.length in 1..80) { "Name must be 1 to 80 characters" }
-        require(packed.size>=216 && packed.size%18==0 && packed.size<=600_000 &&
+        require(packed.size>=18 && packed.size%18==0 && packed.size<=600_000 &&
                 packed.all {it.isFinite()}) { "Generated mesh has invalid vertices" }
         require(color.size==4 && color.all {it.isFinite()&&it in 0f..1f}) {
             "Invalid material color"
