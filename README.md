@@ -90,6 +90,14 @@ The optional **✦ STUDIO** button opens an eight-step guided path: **Create Bas
 
 The public DEV signing identity remains pinned, and `versionCode 13` is intended to upgrade from v0.7.2 in place. See [milestone 08](docs/FOUNDATION_MILESTONE_08.md) and [full studio roadmap](docs/STUDIO_ROADMAP.md).
 
+## v0.9 imported hovercraft GLB workshop
+
+The editor is no longer limited to inspecting imported cars. After **OPEN GLB**, tap **✦ EDIT CRAFT** to find named mesh components and use an accessible staged editor: **Choose part → Move/Rotate/Resize → Enter X/Y/Z values → Preview → Apply/Adjust/Revert**. Components retain existing geometry and PBR materials; changes use local glTF node transforms, and an in-session Undo/Redo stack. The search box supports large 100+ component hovercraft models without forcing you to scroll through every part.
+
+**ADD A NEW BODY PART** inserts a basic independent armor panel, thruster pod, fin, intake or fairing blank as genuine C++-generated triangles and a new glTF mesh node. You can then place and resize that part. These are construction blanks, not finished high-detail shapes. Export the entire updated GLB and reopen it for further node/component editing.
+
+This is still **component transform editing**, not individual imported vertex or surface topology editing, booleans, precision CAD, or arbitrary bevels. Unsupported glTF structures stay preview-only rather than risking corruption. Check [milestone 09](docs/FOUNDATION_MILESTONE_09.md) and [hovercraft-ready roadmap](docs/HOVERCRAFT_WORKSHOP_PLAN.md).
+
 ## First real-user gate
 
 A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.
