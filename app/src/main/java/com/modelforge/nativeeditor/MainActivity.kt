@@ -1702,7 +1702,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 "4. PREVIEW: inspect the modification, then Apply or Revert. Undo and Redo keep previous GLB edits in memory.\n\n"+
                 "5. SAVE GLB: export the entire edited craft, with existing original materials and meshes retained. The saved GLB can be opened again for component editing.\n\n"+
                 "ADD PART: insert a simple new armor panel, pod, intake, fin or fairing blank and then adjust its location and size.\n\n"+
-                "CURRENT LIMIT: This moves/resizes separate mesh COMPONENTS. It does not yet sculpt individual imported vertices or apply CAD-style bevels to a body panel."
+                "RESHAPE MESH: choose a surface, a center, radius, and local XYZ displacement. PREVIEW edits true imported vertex positions with smooth falloff and recalculated normals. Apply is undoable. Unsupported compressed, skinned, morphed and tangent-space geometry is protected.\n\n"+
+                "CURRENT LIMIT: This is still a numerical local brush. Touch-to-select vertices, editable edge loops, sculpt gizmos, bevels, and CAD surfaces are not implemented yet."
             )
             .setPositiveButton("SELECT PART") { _,_ -> chooseCraftPart() }
             .setNeutralButton("ADD PART") { _,_ -> chooseCraftAddPart() }
@@ -1767,16 +1768,155 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             "MOVE • left/right, height, forward/back",
             "ROTATE • pitch, yaw and roll (degrees)",
             "RESIZE • width, height and length factors",
+            "RESHAPE MESH • deform a local area of real vertices",
             "SELECT DIFFERENT PART"
         )
         android.app.AlertDialog.Builder(this)
             .setTitle("Step 2 • "+part.label)
-            .setMessage("Choose what to change. Only this component will be modified, not the entire craft.")
+            .setMessage("Choose a tool for this component. RESHAPE MESH modifies real imported vertices, not just the component transform.")
             .setItems(options) { _,index ->
-                if(index==3) chooseCraftPart()
-                else showPartAmounts(part,index)
+                when(index) {
+                    3 -> chooseMeshBrushSurface(part)
+                    4 -> chooseCraftPart()
+                    else -> showPartAmounts(part,index)
+                }
             }
             .setNegativeButton("CANCEL",null).show()
+    }
+
+    private fun chooseMeshBrushSurface(part:GlbWorkshop.Part) {
+        val workshop=craftWorkshop ?:return
+        try {
+            val surfaces=workshop.meshSurfaces(part.node)
+            if(surfaces.isEmpty()) {
+                toast("This component has no ordinary editable triangle surfaces.")
+                return
+            }
+            val labels=surfaces.map {
+                "Surface ${it.primitive+1} • ${it.vertices} actual vertices"
+            }.toTypedArray()
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Mesh reshape • Step 1: Choose surface")
+                .setMessage("This tool edits real imported GLB positions and rebuilds shading normals. It currently supports ordinary triangle meshes only.")
+                .setItems(labels) { _,index ->
+                    showMeshBrushAmounts(part,surfaces[index])
+                }
+                .setNeutralButton("BACK") { _,_ ->chooseCraftOperation(part) }
+                .setNegativeButton("CANCEL",null).show()
+        } catch(error:Exception) {
+            toast("Cannot edit that mesh: "+(error.message?:"unsupported format"))
+        }
+    }
+
+    private fun showMeshBrushAmounts(part:GlbWorkshop.Part, surface:GlbWorkshop.MeshSurface) {
+        // Local mesh coordinates, before the part's node transform. This initial
+        // guided numeric brush is a safe foundation, NOT yet viewport-touch sculpt.
+        val center=FloatArray(3) {(surface.min[it]+surface.max[it])*0.5f}
+        val longest=(0..2).maxOf {surface.max[it]-surface.min[it]}
+        val radius=(longest*0.35f).coerceIn(0.01f,1000f)
+        val titles=listOf(
+            "Center X • mesh local","Center Y • mesh local","Center Z • mesh local",
+            "Brush radius • mesh units",
+            "Move X • sideways","Move Y • height","Move Z • forward/back"
+        )
+        val defaults=listOf(center[0],center[1],center[2],radius,0f,0.10f,0f)
+        val form=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(14),dp(8),dp(14),dp(5))
+        }
+        form.addView(textLabel(
+            "Step 2 • Shape an area, not the whole part. Choose a point inside the surface, a radius, and how far to move nearby vertices. Center gets the full movement; the influence smoothly fades to zero at the edge. This is a numeric preview tool while we develop direct on-model handles.",
+            13f,muted))
+        val inputs=titles.mapIndexed {index,title ->
+            form.addView(textLabel(title,14f,text))
+            EditText(this).apply {
+                setSingleLine(true)
+                textSize=16f
+                setText(String.format(java.util.Locale.US,"%.4f",defaults[index]))
+                inputType=InputType.TYPE_CLASS_NUMBER or
+                    InputType.TYPE_NUMBER_FLAG_SIGNED or
+                    InputType.TYPE_NUMBER_FLAG_DECIMAL
+                form.addView(this,LinearLayout.LayoutParams(-1,dp(45)))
+            }
+        }
+        val scroll=ScrollView(this).apply {addView(form)}
+        val dialog=android.app.AlertDialog.Builder(this)
+            .setTitle("Step 2 • Local mesh brush")
+            .setView(scroll)
+            .setPositiveButton("PREVIEW",null)
+            .setNeutralButton("BACK",null)
+            .setNegativeButton("CANCEL",null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                dialog.dismiss()
+                chooseMeshBrushSurface(part)
+            }
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val values=inputs.map {it.text.toString().trim().toFloatOrNull()}
+                if(values.any {it==null || !it.isFinite()}) {
+                    toast("Please enter seven valid finite numbers.")
+                    return@setOnClickListener
+                }
+                val v=values.map {it!!}
+                val brush=GlbWorkshop.MeshBrush(surface.primitive,
+                    v[0],v[1],v[2],v[3],v[4],v[5],v[6])
+                val current=craftWorkshop ?:return@setOnClickListener
+                val original=current.export()
+                try {
+                    val preview=current.previewMeshBrush(part.node,brush)
+                    if(!present(preview,currentName,true)) {
+                        present(original,currentName,true)
+                        return@setOnClickListener
+                    }
+                    dialog.dismiss()
+                    confirmMeshBrushPreview(part,surface,brush,original)
+                } catch(error:Exception) {
+                    present(original,currentName,true)
+                    toast("Mesh preview rejected: "+(error.message?:"invalid surface"))
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun confirmMeshBrushPreview(
+        part:GlbWorkshop.Part,
+        surface:GlbWorkshop.MeshSurface,
+        brush:GlbWorkshop.MeshBrush,
+        original:ByteArray
+    ) {
+        val workshop=craftWorkshop ?:return
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Step 3 • Keep this surface deformation?")
+            .setMessage(part.label+" • surface "+(surface.primitive+1)+
+                "\n\nOnly vertices inside the smooth influence area move. Nearby materials and separate geometry remain unchanged. The real GLB mesh is replaced using reversible geometry buffers; Apply saves an in-session undo step.")
+            .setPositiveButton("APPLY") { _,_ ->
+                try {
+                    val updated=workshop.applyMeshBrush(part.node,brush)
+                    if(!present(updated,currentName,true)) {
+                        workshop.undo()
+                        present(original,currentName,true)
+                    } else {
+                        craftDirty=true
+                        syncShapeUi()
+                        status.text="Mesh area reshaped • UNSAVED • Save GLB when finished"
+                        toast("Real mesh vertices updated. Undo and Redo available.")
+                    }
+                } catch(error:Exception) {
+                    present(original,currentName,true)
+                    toast("Mesh edit rejected: "+(error.message?:"invalid geometry"))
+                }
+            }
+            .setNeutralButton("ADJUST") { _,_ ->
+                present(original,currentName,true)
+                showMeshBrushAmounts(part,surface)
+            }
+            .setNegativeButton("REVERT") { _,_ ->
+                present(original,currentName,true)
+            }
+            .setOnCancelListener {present(original,currentName,true)}
+            .show()
     }
 
     private fun showPartAmounts(part:GlbWorkshop.Part,operation:Int) {
