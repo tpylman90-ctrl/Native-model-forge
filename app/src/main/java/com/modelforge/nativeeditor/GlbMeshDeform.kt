@@ -197,7 +197,7 @@ internal object GlbMeshDeform {
         view.addProperty("target",34962)
         views.add(view)
         bytes.position(start)
-        numbers.forEach(bytes::putFloat)
+        numbers.forEach { bytes.putFloat(it) }
         return index
     }
     private fun addVecAccessor(root:JsonObject,viewId:Int,count:Int,
