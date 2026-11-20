@@ -30,6 +30,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.ListView
+import android.widget.Spinner
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.text.TextWatcher
 import android.text.Editable
@@ -183,6 +185,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private val exportCode = 402
     private val openProjectCode = 403
     private val exportProjectCode = 404
+    private val importAssetPackCode = 405
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -314,6 +317,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         top.addView(button("OPEN GLB") { requestOpen() })
         craftEditButton=button("✦ EDIT CRAFT") { showCraftWorkshop() }
         top.addView(craftEditButton)
+        top.addView(button("▦ LIBRARY") { showAssetLibrary() })
         top.addView(button("SAVE GLB") { requestExport() })
         top.addView(button("OPEN PROJECT") { requestOpenProject() })
         top.addView(button("SAVE PROJECT") { requestExportProject() })
@@ -1334,7 +1338,13 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
-            if(requestCode==openProjectCode) {
+            if(requestCode==importAssetPackCode) {
+                val pack=contentResolver.openInputStream(uri)?.use {
+                    ForgeAssetPack.installExternal(this,it)
+                } ?:throw IllegalArgumentException("Compressed pack cannot be opened")
+                toast("Installed "+pack.title+" with "+pack.entries.size+" compressed objects.")
+                showAssetLibrary()
+            } else if(requestCode==openProjectCode) {
                 readEditableProject(uri)
             } else if(requestCode==exportProjectCode) {
                 require(currentShape!=null) { "Only generated boxes have editable projects" }
@@ -1477,11 +1487,12 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
         val options=arrayOf(
             "1  SELECT & EDIT AN EXISTING PART",
-            "2  ADD A NEW BODY PART",
-            "3  UNDO LAST CRAFT EDIT",
-            "4  REDO CRAFT EDIT",
-            "5  SAVE EDITED GLB",
-            "6  HOW CRAFT EDITING WORKS"
+            "2  BROWSE COMPRESSED GLB LIBRARY",
+            "3  ADD A NEW BODY PART",
+            "4  UNDO LAST CRAFT EDIT",
+            "5  REDO CRAFT EDIT",
+            "6  SAVE EDITED GLB",
+            "7  HOW CRAFT EDITING WORKS"
         )
         android.app.AlertDialog.Builder(this)
             .setTitle("CRAFT WORKSHOP • "+workshop.parts().size+" components")
@@ -1491,10 +1502,11 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             .setItems(options) { _,chosen ->
                 when(chosen) {
                     0 -> chooseCraftPart()
-                    1 -> chooseCraftAddPart()
-                    2 -> undoCraft()
-                    3 -> redoCraft()
-                    4 -> requestExport()
+                    1 -> showAssetLibrary()
+                    2 -> chooseCraftAddPart()
+                    3 -> undoCraft()
+                    4 -> redoCraft()
+                    5 -> requestExport()
                     else -> showCraftInstructions()
                 }
             }
