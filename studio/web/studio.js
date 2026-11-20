@@ -70,8 +70,8 @@ function selectFace(face){
   const r=state.faces[face];
   const inputs={kind:r.kind,regionWidth:r.width,regionHeight:r.height,
     offsetU:r.offset_u,offsetV:r.offset_v,depth:r.depth_m};
-  for(const [key,value] of Object.entries(inputs))el(key).value=value;
-  for(let i=0;i<4;i++)el("curve"+i).value=r.curves[i];
+  for(const [key,value] of Object.entries(inputs))el(key).value=Number(value.toFixed(4));
+  for(let i=0;i<4;i++)el("curve"+i).value=Number(r.curves[i].toFixed(4));
   if(model)model.material.forEach((mat,index)=>{
     mat.color.setHex(index===face?0x19cdbb:0x7890ad);
     mat.emissive.setHex(index===face?0x103b42:0x000000);
@@ -118,8 +118,8 @@ function refresh(shouldFit=false,isEdit=true){
     scene.remove(model);model.geometry.dispose();model.material.forEach(m=>m.dispose());
   }
   model=next;scene.add(next);
-  ["width","height","length"].forEach((key,i)=>el(key).value=state.size[i]);
-  ["topWidth","topLength","shift"].forEach((key,i)=>el(key).value=state.profile[i]);
+  ["width","height","length"].forEach((key,i)=>el(key).value=Number(state.size[i].toFixed(4)));
+  ["topWidth","topLength","shift"].forEach((key,i)=>el(key).value=Number(state.profile[i].toFixed(4)));
   el("name").value=state.name;
   el("model-title").textContent=state.name;
   el("revision").textContent="Rev "+state.revision;

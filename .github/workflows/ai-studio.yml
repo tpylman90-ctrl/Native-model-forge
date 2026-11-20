@@ -33,6 +33,7 @@ jobs:
           test -s studio/web/forge_core.js
           test -s studio/web/forge_core.wasm
           node --check studio/web/forge_core.js
+          node studio/tests/wasm-smoke.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: ModelForge-AI-Studio-Browser

@@ -2,7 +2,8 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 command -v em++ >/dev/null || { echo "Emscripten (em++) required" >&2; exit 1; }
-em++ -std=c++17 -O2 \
+em++ -std=c++17 -O2 -fexceptions \
+  -s DISABLE_EXCEPTION_CATCHING=0 \
   studio/forge_studio.cpp app/src/main/cpp/document.cpp app/src/main/cpp/geometry.cpp \
   -s MODULARIZE=1 -s EXPORT_ES6=1 -s EXPORT_NAME=createForgeCore \
   -s ENVIRONMENT=web -s ALLOW_MEMORY_GROWTH=1 \
