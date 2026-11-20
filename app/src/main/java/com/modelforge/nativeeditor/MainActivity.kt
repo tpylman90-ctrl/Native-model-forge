@@ -1487,6 +1487,77 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
     }
 
+    private fun launchMirrorWizard() {
+        val shape=currentShape ?: run {
+            toast("Mirror works on an editable generated box.");return
+        }
+        val source=selectedFace ?: run {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Mirror detail • Step 1 of 2")
+                .setMessage("Select a face containing a drawn or extruded region. Then return here to mirror it to the opposite side.")
+                .setPositiveButton("SELECT FACE") { _,_ ->
+                    if(!faceMode) toggleFaceMode()
+                    setDrawerVisible(false)
+                }
+                .setNegativeButton("CANCEL",null).show()
+            return
+        }
+        val feature=shape.areas[source]
+        if(feature.kind<0) {
+            toast("This face has no saved region to mirror. Draw an area first.")
+            return
+        }
+        val destination=source xor 1
+        val existing=shape.areas[destination].kind>=0
+        val targetName=faceName(destination)
+        val message=buildString {
+            append("SOURCE: ");append(faceName(source))
+            append("\nTARGET: ");append(targetName)
+            append("\n\nRegion: ")
+            append(when(feature.kind) {0->"Rectangle";1->"Oval";else->"Curved"})
+            append(" • ");append((feature.width*100).toInt())
+            append("% × ");append((feature.height*100).toInt());append("% of face")
+            append("\nDepth: ");append(String.format(java.util.Locale.US,"%+.2f m",feature.depth))
+            append("\n\nThe region will be reflected across the model with its curved edges and offset mirrored correctly.")
+            if(existing) append("\n\nCAUTION: The opposite face already contains a region. This will replace ONLY that opposite face's edit, and you can Undo.")
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Mirror detail • Step 2 of 2")
+            .setMessage(message)
+            .setNegativeButton("BACK",null)
+            .setPositiveButton(if(existing) "REPLACE & MIRROR" else "MIRROR DETAIL") { _,_ ->
+                applyMirror(source,existing)
+            }.show()
+    }
+
+    private fun applyMirror(source:Int,overwrite:Boolean) {
+        val old=currentShape ?: return
+        var applied=false
+        try {
+            val target=NativeProject.mirrorFaceRegion(source,overwrite)
+            applied=true
+            require(target==source xor 1) { "Unexpected mirror destination" }
+            val reflected=fromNative() ?: throw IllegalArgumentException("Mirrored project is unavailable")
+            if(!renderShape(reflected)) throw IllegalStateException("Mirror could not be rendered")
+            saveWorkingShape()
+            selectedFace=source
+            syncRegionUi(source)
+            syncShapeUi()
+            status.text=faceName(source)+" detail mirrored onto "+faceName(target)+
+                " • Undo/Redo supported"
+            toast("Mirror applied to "+faceName(target)+". The other faces are unchanged.")
+        } catch(error:Exception) {
+            if(applied) {
+                try {NativeProject.undo();renderShape(old)}
+                catch(rollback:Exception) {
+                    Log.e("ModelForgeMirror","Mirror rollback failed",rollback)
+                }
+            }
+            Log.e("ModelForgeMirror","Mirror operation failed",error)
+            toast("Mirror not applied: "+(error.message?:"unknown error"))
+        }
+    }
+
     private fun handleFaceGesture(event: MotionEvent): Boolean {
         if(!faceMode || currentShape==null || !::faceOverlay.isInitialized) return false
         when(event.actionMasked) {
