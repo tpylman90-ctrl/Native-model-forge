@@ -67,6 +67,18 @@ Java_com_modelforge_nativeeditor_NativeProject_setFaceRegion(
         document.setFaceRegion(boxId(),faceIndex,feature,document.revision());
     } catch(const std::exception& error) { javaError(env,error); }
 }
+extern "C" JNIEXPORT jint JNICALL
+Java_com_modelforge_nativeeditor_NativeProject_mirrorFaceRegion(
+    JNIEnv* env,jobject,jint sourceFace,jboolean overwrite) {
+    std::lock_guard<std::mutex> guard(projectMutex);
+    try {
+        return document.mirrorFaceRegion(boxId(),sourceFace,
+                                        overwrite==JNI_TRUE,document.revision());
+    } catch(const std::exception& error) {
+        javaError(env,error);
+        return -1;
+    }
+}
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_modelforge_nativeeditor_NativeProject_undo(JNIEnv*,jobject) {
     std::lock_guard<std::mutex> guard(projectMutex);
