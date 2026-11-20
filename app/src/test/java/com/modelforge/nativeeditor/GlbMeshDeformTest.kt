@@ -85,7 +85,10 @@ class GlbMeshDeformTest {
         val preview=workshop.previewMeshBrush(node,brush)
         assertArrayEquals(source,workshop.export())
         assertEquals(.2f,vertex(preview,0,0)[2],.00001f)
-        assertEquals(0f,vertex(preview,0,1)[2],.00001f)
+        assertEquals("preview positions="+(0..2).map {vertex(preview,0,it).toList()}+
+            " views="+json(preview).getAsJsonArray("bufferViews").toString()+
+            " accessors="+json(preview).getAsJsonArray("accessors").toString(),
+            0f,vertex(preview,0,1)[2],.00001f)
         assertEquals(0f,vertex(preview,0,2)[2],.00001f)
         val saved=workshop.applyMeshBrush(node,brush)
         assertArrayEquals(preview,saved)
@@ -149,7 +152,8 @@ class GlbMeshDeformTest {
         val full=vertex(edited,0,0)[2]
         val edge=vertex(edited,0,1)[2]
         assertEquals(.5f,full,.00001f)
-        assertTrue(edge>0f && edge<full)
+        assertTrue("falloff expected 0 < "+edge+" < "+full+"; positions="+
+            (0..2).map {vertex(edited,0,it).toList()},edge>0f && edge<full)
         assertEquals(edge,vertex(edited,0,2)[2],.000001f)
     }
 }
