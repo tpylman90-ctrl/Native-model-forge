@@ -18,6 +18,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate compact CC0 basic-GLB pack generator
+        run: |
+          python3 tools/generate_forge_basics.py --output /tmp/forge-basics-ci.mfpack
+          python3 - <<'PY'
+          import json,zipfile
+          with zipfile.ZipFile('/tmp/forge-basics-ci.mfpack') as archive:
+              manifest=json.loads(archive.read('manifest.json'))
+              assert manifest['version']==1
+              assert len(manifest['assets'])>=18
+              assert len(archive.namelist())==len(manifest['assets'])+1
+              assert all(item['license']=='CC0-1.0' for item in manifest['assets'])
+          print("COMPRESSED_GLB_PACK: PASS original CC0 models in lazy ZIP")
+          PY
       - name: Compile C++17 modeling core independently of Android
         run: |
           cmake -S app/src/main/cpp -B build/native -DCMAKE_BUILD_TYPE=Debug
@@ -119,7 +132,7 @@ jobs:
           assert match, "Cannot find APK signing certificate SHA-256"
           assert match.group(1).lower() == expected, "APK no longer uses the pinned dev signing key"
           assert "package: name='com.modelforge.nativeeditor.dev'" in badging, "DEV package ID missing"
-          assert "versionCode='14'" in badging, "DEV versionCode missing"
+          assert "versionCode='15'" in badging, "DEV versionCode missing"
           assert "Model Forge DEV" in badging, "DEV app label missing"
           print("DEV_SIGNING: PASS same pinned signing certificate, isolated application ID, versionCode and label")
           PY
@@ -229,6 +242,24 @@ jobs:
                          "animatedNodesAndOutOfRangeTransforms"):
               assert marker in test
           print("CRAFT_EDITOR: PASS imported components, previews, accessory creation and safety guards")
+          PY
+      - name: Verify lazy GLB library integration and provenance
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("app/src/main/java/com/modelforge/nativeeditor/ForgeAssetPack.kt").read_text()
+          mesh=Path("app/src/main/java/com/modelforge/nativeeditor/LibraryGlbMesh.kt").read_text()
+          ui=Path("app/src/main/java/com/modelforge/nativeeditor/MainActivity.kt").read_text()
+          test=Path("app/src/test/java/com/modelforge/nativeeditor/ForgeAssetLibraryTest.kt").read_text()
+          assert "ZipFile(file).use" in p
+          assert 'getEntry("manifest.json")' in p
+          assert "fun selectedGlb(" in p and "digest(bytes)==target.sha256" in p
+          assert 'fun read(bytes:ByteArray)' in mesh
+          assert "showAssetLibrary()" in ui and "previewLibraryAsset(" in ui
+          assert "ForgeAssetPack.installExternal(this,it)" in ui
+          assert 'fun blank():GlbWorkshop' in Path("app/src/main/java/com/modelforge/nativeeditor/GlbWorkshop.kt").read_text()
+          assert "eachSelectedCompressedGlbDecodesIntoRealNormalsAndVertices" in test
+          print("LAZY_GLB_LIBRARY: PASS on-demand extraction, material preservation path and user catalog")
           PY
       - name: Audit APK includes model core, DEX and manifest
         shell: bash
