@@ -132,7 +132,7 @@ jobs:
           assert match, "Cannot find APK signing certificate SHA-256"
           assert match.group(1).lower() == expected, "APK no longer uses the pinned dev signing key"
           assert "package: name='com.modelforge.nativeeditor.dev'" in badging, "DEV package ID missing"
-          assert "versionCode='15'" in badging, "DEV versionCode missing"
+          assert "versionCode='16'" in badging, "DEV versionCode missing"
           assert "Model Forge DEV" in badging, "DEV app label missing"
           print("DEV_SIGNING: PASS same pinned signing certificate, isolated application ID, versionCode and label")
           PY
