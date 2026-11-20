@@ -32,6 +32,16 @@ class GlbWorkshop private constructor(
         val turnX: Float = 0f, val turnY: Float = 0f, val turnZ: Float = 0f,
         val scaleX: Float = 1f, val scaleY: Float = 1f, val scaleZ: Float = 1f
     )
+    // Local-space brush for imported triangle meshes, never the whole node transform.
+    // Edits are stored as appended POSITION+NORMAL accessors, so undo is reversible.
+    data class MeshBrush(
+        val primitive: Int,
+        val centerX: Float, val centerY: Float, val centerZ: Float,
+        val radius: Float,
+        val moveX: Float, val moveY: Float, val moveZ: Float
+    )
+    data class MeshSurface(val primitive: Int, val vertices: Int,
+                           val min: FloatArray, val max: FloatArray)
     data class Starter(val name: String, val width: Float, val height: Float,
                        val length: Float, val topWidth: Float, val topLength: Float,
                        val color: FloatArray)
@@ -260,6 +270,37 @@ class GlbWorkshop private constructor(
         pushCheckpoint()
         document=next
         return output
+    }
+
+    /** List true imported vertex surfaces; rejects compressed and unsafe formats. */
+    fun meshSurfaces(node:Int):List<MeshSurface> {
+        require(parts().any {it.node==node}) {"Select a safely editable mesh node"}
+        return GlbMeshDeform.surfaces(document,binary,usedBytes,node)
+            .map { MeshSurface(it.primitive,it.vertexCount,it.min,it.max) }
+    }
+
+    private fun meshEdit(node:Int,brush:MeshBrush):GlbMeshDeform.Result {
+        require(parts().any {it.node==node}) {"Select a safely editable mesh node"}
+        return GlbMeshDeform.deform(document,binary,usedBytes,node,
+            GlbMeshDeform.Brush(brush.primitive,brush.centerX,brush.centerY,
+                brush.centerZ,brush.radius,brush.moveX,brush.moveY,brush.moveZ))
+    }
+
+    /** Preview without changing the source GLB, model, or undo history. */
+    fun previewMeshBrush(node:Int,brush:MeshBrush):ByteArray {
+        val next=meshEdit(node,brush)
+        return encode(next.root,next.binary,next.length)
+    }
+
+    /** Commit only after new mesh, normals and complete GLB encode succeed. */
+    fun applyMeshBrush(node:Int,brush:MeshBrush):ByteArray {
+        val next=meshEdit(node,brush)
+        val result=encode(next.root,next.binary,next.length)
+        pushCheckpoint()
+        document=next.root
+        binary=next.binary
+        usedBytes=next.length
+        return result
     }
 
     private fun pushCheckpoint() {

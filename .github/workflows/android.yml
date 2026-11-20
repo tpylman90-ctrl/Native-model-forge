@@ -58,6 +58,21 @@ jobs:
           "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
       - name: Compile native Android APK and JNI C++ modeling library
         run: gradle --no-daemon --stacktrace :app:assembleDebug :app:testDebugUnitTest
+      - name: Print Kotlin unit test failures when a regression fails
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p=Path('app/build/test-results/testDebugUnitTest')
+          for f in p.glob('*.xml'):
+              root=ET.parse(f).getroot()
+              for case in root.findall('testcase'):
+                  for failure in case.findall('failure'):
+                      print('FAILED',f.name,case.get('name'))
+                      print((failure.get('message') or '')[:1500])
+                      print((failure.text or '')[:1500])
+          PY
       - name: Assert Filament initialization order in activity source
         run: |
           python3 - <<'PY'
@@ -132,7 +147,7 @@ jobs:
           assert match, "Cannot find APK signing certificate SHA-256"
           assert match.group(1).lower() == expected, "APK no longer uses the pinned dev signing key"
           assert "package: name='com.modelforge.nativeeditor.dev'" in badging, "DEV package ID missing"
-          assert "versionCode='15'" in badging, "DEV versionCode missing"
+          assert "versionCode='16'" in badging, "DEV versionCode missing"
           assert "Model Forge DEV" in badging, "DEV app label missing"
           print("DEV_SIGNING: PASS same pinned signing certificate, isolated application ID, versionCode and label")
           PY
