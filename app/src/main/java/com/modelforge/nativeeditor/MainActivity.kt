@@ -1076,8 +1076,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             shapeOverlay.visibility = if (directShapeMode) View.VISIBLE else View.GONE
             shapeOverlay.invalidate()
         }
-        undoButton.isEnabled = shape != null && NativeProject.canUndo()
-        redoButton.isEnabled = shape != null && NativeProject.canRedo()
+        undoButton.isEnabled = (shape != null && NativeProject.canUndo()) ||
+            (importedPreview && craftWorkshop?.canUndo == true)
+        redoButton.isEnabled = (shape != null && NativeProject.canRedo()) ||
+            (importedPreview && craftWorkshop?.canRedo == true)
         if (shape != null) {
             widthField.setText(shape.width.toString())
             heightField.setText(shape.height.toString())
@@ -1339,6 +1341,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 if (present(bytes, name, true)) {
                     craftWorkshop=editor
                     craftDirty=false
+                    studioActive=false
+                    updateStudioGuide()
                     NativeProject.clear()
                     syncShapeUi()
                     if(editor!=null) {
