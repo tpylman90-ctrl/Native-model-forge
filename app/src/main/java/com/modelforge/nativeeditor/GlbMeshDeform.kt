@@ -175,13 +175,14 @@ internal object GlbMeshDeform {
             ?:return emptyList()
         return (0 until primitives.size()).map {primitiveId ->
             val selected=input(root,meshId,primitiveId,bytes,length)
-            val min=FloatArray(3){Float.POSITIVE_INFINITY}
-            val max=FloatArray(3){Float.NEGATIVE_INFINITY}
+            val minValues=FloatArray(3){Float.POSITIVE_INFINITY}
+            val maxValues=FloatArray(3){Float.NEGATIVE_INFINITY}
             for(i in selected.positions.indices step 3)for(axis in 0..2){
                 val v=selected.positions[i+axis]
-                min[axis]=min(min[axis],v);max[axis]=max(max[axis],v)
+                minValues[axis]=kotlin.math.min(minValues[axis],v)
+                maxValues[axis]=kotlin.math.max(maxValues[axis],v)
             }
-            Surface(primitiveId,selected.positions.size/3,min,max)
+            Surface(primitiveId,selected.positions.size/3,minValues,maxValues)
         }
     }
 
@@ -210,7 +211,7 @@ internal object GlbMeshDeform {
         a.addProperty("type","VEC3")
         if(minV!=null && maxV!=null) {
             val minJson=JsonArray();val maxJson=JsonArray()
-            minV.forEach(minJson::add);maxV.forEach(maxJson::add)
+            minV.forEach { minJson.add(it) };maxV.forEach { maxJson.add(it) }
             a.add("min",minJson);a.add("max",maxJson)
         }
         array.add(a)
