@@ -51,14 +51,14 @@ class ForgeAssetPack private constructor(
             .digest(bytes).joinToString(""){"%02x".format(it)}
 
         fun open(file:File):ForgeAssetPack {
-            require(file.isFile && file.length() in 1..MAX_PACK_BYTES) {
+            require(file.isFile && file.length() in 1L..MAX_PACK_BYTES) {
                 "Invalid or oversized asset pack"
             }
             ZipFile(file).use { zip ->
                 require(zip.size() in 2..600) {"Asset pack has too many entries"}
                 val manifest=zip.getEntry("manifest.json")
                     ?:throw IllegalArgumentException("Asset pack manifest.json missing")
-                require(!manifest.isDirectory && manifest.size in 1..MAX_MANIFEST_BYTES.toLong()) {
+                require(!manifest.isDirectory && manifest.size in 1L..MAX_MANIFEST_BYTES.toLong()) {
                     "Invalid asset pack manifest"
                 }
                 val data=zip.getInputStream(manifest).use {readCapped(it,MAX_MANIFEST_BYTES)}
@@ -86,7 +86,7 @@ class ForgeAssetPack private constructor(
                     require(id.matches(Regex("[a-zA-Z0-9_-]{1,75}")) &&
                             seen.add(id) && name.length in 1..100 &&
                             category.length in 1..80 &&
-                            fileName.matches(Regex("glbs/[A-Za-z0-9_-]{1,100}\.glb")) &&
+                            fileName.matches(Regex("glbs/[A-Za-z0-9_-]{1,100}[.]glb")) &&
                             size in 28..MAX_OBJECT_BYTES &&
                             sha.matches(Regex("[0-9a-f]{64}")) &&
                             license.length in 2..90 && source.length in 1..200) {
