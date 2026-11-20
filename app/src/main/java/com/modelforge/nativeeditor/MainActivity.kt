@@ -1314,6 +1314,74 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
     }
 
+    private fun showModelReport() {
+        val shape=currentShape
+        val mesh=currentGeneratedMesh
+        if(shape==null || mesh==null) {
+            toast("Model Check currently audits editable native solids. Imported GLBs remain preview-only.")
+            return
+        }
+        val min=FloatArray(3) { Float.POSITIVE_INFINITY }
+        val max=FloatArray(3) { Float.NEGATIVE_INFINITY }
+        for(v in mesh.indices step 6) {
+            for(axis in 0..2) {
+                min[axis]=kotlin.math.min(min[axis],mesh[v+axis])
+                max[axis]=kotlin.math.max(max[axis],mesh[v+axis])
+            }
+        }
+        val span=FloatArray(3) { max[it]-min[it] }
+        val crossEpsilon=maxOf(1e-20f,
+            maxOf(span[0],span[1],span[2]).let { it*it*1e-12f })
+        var degenerate=0
+        var flipped=0
+        val triangles=mesh.size/18
+        for(t in 0 until triangles) {
+            val i=t*18
+            val ax=mesh[i+6]-mesh[i]
+            val ay=mesh[i+7]-mesh[i+1]
+            val az=mesh[i+8]-mesh[i+2]
+            val bx=mesh[i+12]-mesh[i]
+            val by=mesh[i+13]-mesh[i+1]
+            val bz=mesh[i+14]-mesh[i+2]
+            val cx=ay*bz-az*by
+            val cy=az*bx-ax*bz
+            val cz=ax*by-ay*bx
+            val length=kotlin.math.sqrt(cx*cx+cy*cy+cz*cz)
+            if(!length.isFinite() || length<crossEpsilon) degenerate++
+            else if(cx*mesh[i+3]+cy*mesh[i+4]+cz*mesh[i+5]<0f) flipped++
+        }
+        val active=shape.areas.count { it.kind>=0 }
+        val curved=shape.areas.count { it.kind==2 }
+        val report=buildString {
+            append("Base dimensions: ")
+            append(String.format(java.util.Locale.US,"%.2f × %.2f × %.2f m",
+                shape.width,shape.height,shape.length))
+            append("\nGenerated bounds: ")
+            append(String.format(java.util.Locale.US,"%.2f × %.2f × %.2f m",
+                span[0],span[1],span[2]))
+            append("\nTriangles: ");append(triangles)
+            append("\nOriginal faces with editable features: ");append(active);append("/6")
+            append("\nCurved face features: ");append(curved)
+            append("\nDegenerate triangles: ");append(degenerate)
+            append("\nReversed triangle normals: ");append(flipped)
+            append("\nGLB size: ");append((currentGlb?.size ?: 0)/1024);append(" KB")
+            append("\nEditable recovery copy: ")
+            append(if(projectFile.baseFile.exists()) "present" else "not yet saved")
+            append("\n\n")
+            append(if(degenerate==0 && flipped==0)
+                "Basic mesh validation passed. No degenerate or reversed triangles detected."
+            else "Geometry warning: inspect the affected surfaces before export.")
+            append("\n\nThis is a basic numerical mesh check, not a complete watertightness or self-intersection certification.")
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Model Check • Geometry & Project")
+            .setMessage(report)
+            .setPositiveButton("SAVE PROJECT") { _,_ -> requestExportProject() }
+            .setNeutralButton("EXPORT GLB") { _,_ -> requestExport() }
+            .setNegativeButton("CLOSE",null)
+            .show()
+    }
+
     private fun showHelp() {
         android.app.AlertDialog.Builder(this)
             .setTitle("Model Forge Native — Foundation")
