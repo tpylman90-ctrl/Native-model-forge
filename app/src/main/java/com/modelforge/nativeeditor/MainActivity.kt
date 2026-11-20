@@ -29,6 +29,10 @@ import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.ListView
+import android.widget.ArrayAdapter
+import android.text.TextWatcher
+import android.text.Editable
 import android.text.InputType
 import com.google.android.filament.Engine
 import com.google.android.filament.EntityManager
@@ -124,6 +128,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private var currentGlb: ByteArray? = null
     private var currentName = "Starter Box"
     private var importedPreview = false
+    private var craftWorkshop: GlbWorkshop? = null
+    private var craftDirty = false
+    private lateinit var craftEditButton: Button
     // The current editable primitive is independent of Filament render entities.
     private data class FaceArea(
         val kind: Int = -1,
@@ -305,10 +312,13 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         top.addView(button("✦ STUDIO") { launchStudioGuide() })
         top.addView(button("＋ NEW BOX") { createBox() })
         top.addView(button("OPEN GLB") { requestOpen() })
+        craftEditButton=button("✦ EDIT CRAFT") { showCraftWorkshop() }
+        top.addView(craftEditButton)
         top.addView(button("SAVE GLB") { requestExport() })
         top.addView(button("OPEN PROJECT") { requestOpenProject() })
         top.addView(button("SAVE PROJECT") { requestExportProject() })
         top.addView(button("?" ) { showHelp() })
+        craftEditButton.isEnabled=false
 
         val canvas = FrameLayout(this).apply { setBackgroundColor(Color.rgb(19, 29, 43)) }
         surface = SurfaceView(this)
@@ -565,6 +575,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun launchStudioGuide() {
+        if(importedPreview && craftWorkshop!=null) {
+            showCraftWorkshop()
+            return
+        }
         studioActive=true
         if(currentShape==null) studioIndex=0
         updateStudioGuide()
@@ -938,6 +952,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun undoShape() {
+        if(importedPreview && craftWorkshop!=null) {
+            undoCraft()
+            return
+        }
         if (currentShape == null || !NativeProject.undo()) return
         val previous = fromNative()
         if (previous == null || !renderShape(previous)) {
@@ -951,6 +969,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun redoShape() {
+        if(importedPreview && craftWorkshop!=null) {
+            redoCraft()
+            return
+        }
         if (currentShape == null || !NativeProject.redo()) return
         val next = fromNative()
         if (next == null || !renderShape(next)) {
@@ -1003,6 +1025,10 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if (shape == null) {
             directShapeMode=false;faceMode=false;drawAreaMode=false
             selectedFace=null;drawPreview=null;resetRegionDrag()
+        }
+        if(::craftEditButton.isInitialized) {
+            craftEditButton.isEnabled=importedPreview && craftWorkshop!=null
+            craftEditButton.text=if(importedPreview && craftWorkshop!=null) "● EDIT CRAFT" else "✦ EDIT CRAFT"
         }
         if (::drawRegionButton.isInitialized) {
             drawRegionButton.isEnabled=shape!=null
@@ -1070,7 +1096,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             return false
         }
         try {
-            val keepCamera = shape != null && currentShape != null
+            val keepCamera = (shape != null && currentShape != null) ||
+            (imported && importedPreview && craftWorkshop!=null)
             val buffer = ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.LITTLE_ENDIAN)
             buffer.put(bytes)
             buffer.flip()
@@ -1085,7 +1112,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             if (!keepCamera && ::cameraManipulator.isInitialized) {
                 cameraManipulator.jumpToBookmark(cameraManipulator.homeBookmark)
             }
-            status.text = if (imported) "GLB preview: " + name + " • Import editing coming later"
+            status.text = if (imported) "GLB: " + name + " • tap EDIT CRAFT for component tools"
                           else if (faceMode) "FACE MODE: tap a surface to select"
                           else if (directShapeMode) "TOP EDIT: drag handles • lift to apply"
                           else name + " • Native shaped solid • PBR viewport"
@@ -1265,7 +1292,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
             .setType("application/octet-stream")
-        intent.putExtra(Intent.EXTRA_TITLE, "ModelForgeNative-" + (if (importedPreview) "preview" else "box") + ".glb")
+        intent.putExtra(Intent.EXTRA_TITLE,
+            if(importedPreview && craftWorkshop!=null)
+                "ModelForge-Edited-Craft.glb" else "ModelForgeNative-box.glb")
         startActivityForResult(intent, exportCode)
     }
 
@@ -1298,16 +1327,35 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                     stream.toByteArray()
                 } ?: throw IllegalArgumentException("Document could not be read")
                 val name = uri.lastPathSegment?.substringAfterLast('/') ?: "Imported model"
+                // Parse safely first: unsupported GLBs still open for inspection,
+                // but must never be silently modified or exported as editable.
+                val editor=try { GlbWorkshop.open(bytes) }
+                catch(error:Exception) {
+                    Log.w("ModelForgeCraft","GLB component editing unavailable",error)
+                    null
+                }
+                val oldWorkshop=craftWorkshop
+                craftWorkshop=null
                 if (present(bytes, name, true)) {
-                    // Import is still preview-only. Keep the last editable draft on disk.
+                    craftWorkshop=editor
+                    craftDirty=false
                     NativeProject.clear()
                     syncShapeUi()
-                }
+                    if(editor!=null) {
+                        status.text="Craft loaded • "+editor.parts().size+
+                            " editable mesh components • tap EDIT CRAFT"
+                        toast("Craft loaded. EDIT CRAFT lets you select, move, resize and add parts.")
+                    } else {
+                        status.text="GLB preview only • this file has no supported editable mesh components"
+                        toast("GLB preview opened. Its mesh structure does not support component edits yet.")
+                    }
+                } else craftWorkshop=oldWorkshop
             } else if (requestCode == exportCode) {
                 val bytes = currentGlb ?: return
                 contentResolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
                     ?: throw IllegalArgumentException("Cannot open destination")
-                toast("Saved a real GLB to Android Files.")
+                craftDirty=false
+                toast("Saved the edited GLB to Android Files.")
             }
         } catch (error: Exception) {
             toast("File operation failed: " + (error.message ?: "unknown error"))
@@ -1391,7 +1439,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 "VIEW: Drag the model or use the right joystick to orbit. Pinch to zoom; two fingers pan. FIT VIEW resets the camera; TURN VIEW tests orbit. ▼ HIDE TOOLS expands the screen.\n\n" +
                 "FACE EDIT: SELECT FACE, tap any visible original box face. Choose RECTANGLE or OVAL and adjust AREA WIDTH, AREA HEIGHT, and X/Y position sliders. The selected outline previews the area. Drag the PULL circle or enter signed metres and press EXTRUDE. Negative values make a recess. Every original face keeps its own edit; REMOVE SELECTED FACE EDIT clears only that face.\n\n" +
                 "SAVE GLB: Keep the real mesh on your phone. OPEN GLB: Preview existing models.\n\n" +
-                "NEXT: Multi-face editing, edge beveling and arbitrary imported mesh topology. Imported GLBs remain preview-only."
+                "IMPORTED CRAFTS: Tap EDIT CRAFT to search named mesh components, move, rotate and resize them, or add a new simple body-panel/pod/fin. Preview changes before keeping them; save the edited GLB to Android Files. This is component-level editing; sculpting imported mesh vertices is not implemented.\n\n" +
+                "NEXT: Advanced imported vertex and surface sculpting, precision CAD and Boolean body-kit operations."
             ).setPositiveButton("GOT IT", null).show()
     }
 
