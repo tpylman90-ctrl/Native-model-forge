@@ -14,6 +14,7 @@ object NativeProject {
     external fun setFaceRegion(faceIndex: Int, kind: Int, width: Float, height: Float,
                                offsetU: Float, offsetV: Float, depth: Float,
                                curves: FloatArray)
+    external fun mirrorFaceRegion(sourceFace: Int, overwrite: Boolean): Int
     external fun undo(): Boolean
     external fun redo(): Boolean
     external fun canUndo(): Boolean
