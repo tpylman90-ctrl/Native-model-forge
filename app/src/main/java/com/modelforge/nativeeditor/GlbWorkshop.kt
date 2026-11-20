@@ -57,6 +57,16 @@ class GlbWorkshop private constructor(
             Starter("Body fairing blank",1.4f,0.5f,2.1f,0.7f,0.76f,
                 floatArrayOf(0.36f,0.47f,0.59f,1f))
         )
+        /** Empty offline assembly, populated when the first library object is added. */
+        fun blank():GlbWorkshop {
+            val root=JsonParser.parseString("""
+                {"asset":{"version":"2.0","generator":"Model Forge Assembly"},
+                 "scene":0,"scenes":[{"nodes":[]}],"nodes":[],"meshes":[],
+                 "buffers":[{"byteLength":0}],"bufferViews":[],"accessors":[]}
+            """.trimIndent()).asJsonObject
+            return GlbWorkshop(root,byteArrayOf(),0)
+        }
+
         fun open(bytes: ByteArray): GlbWorkshop {
             require(bytes.size in 28..(80*1024*1024)) { "GLB size is outside the phone editing limit" }
             val file=ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
