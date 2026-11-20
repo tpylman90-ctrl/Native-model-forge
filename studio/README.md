@@ -63,3 +63,11 @@ Use Insert template in the browser command console for the current object ID and
 2. Build true touch/mouse surface handles (DRAW → SIZE → CURVE → PULL) backed by the shared native kernel.
 3. Add multi-object editable topology and imported-GLB mesh support in the canonical project.
 4. Add an authenticated/permissioned tool bridge and strict visual approval before remote AI actions.
+
+## Co-op test workflow
+
+The default browser scene is the native editable starter hull at studio/web/sessions/hovercraft-hull.mforge. The studio loads it automatically, and Reload shared hovercraft fetches the latest deployed revision. Save your own edits to .mforge, or use Copy link for ChatGPT: the URL fragment carries the exact native document. Paste that link into the ChatGPT conversation, and the assistant can reconstruct the project, modify its native parameters, and return an updated link or publish a new sample to the repository. For shape inspection, Save model screenshot and attach the PNG in chat.
+
+**This is turn-based co-editing, not a live socket, cloud browser, or remotely connected ChatGPT tool.** Links are not encrypted. Anyone with a link can inspect its model. Keep sensitive projects in private files rather than share links. The link payload is capped at 8 KiB; larger models should be exported as .mforge files and attached directly.
+
+GitHub Pages deployment is handled by .github/workflows/studio-pages.yml. A first run will attempt to enable Pages; if GitHub disallows automatic enablement, the repository owner must visit Settings -> Pages, select GitHub Actions as the source, and rerun deployment. The .mforge document remains the editing source of truth; GLB is a separate mesh export with neutral materials.

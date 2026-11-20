@@ -45,7 +45,10 @@ assert.equal(loaded.name,"Co-op Hover Hull 01");
 assert.equal(loaded.faces[0].kind,2);
 assert.equal(loaded.faces[4].kind,2);
 assert.ok(call("mf_vertex_count")>36,"shared hull must contain real surface geometry");
-assert.equal(call("mf_save_project",[],[],"string"),sharedHull);
+const canonical=call("mf_save_project",[],[],"string");
+// Hand-authored decimal parameters normalize to 17-digit C++ output.
+assert.equal(call("mf_load_project",["string"],[canonical]),1);
+assert.equal(call("mf_save_project",[],[],"string"),canonical);
 console.log("SHARED_HULL_NATIVE: PASS project parses and tessellates in WebAssembly core");
 
 console.log("WASM_RUNTIME_SMOKE: PASS native geometry, curves, mirror, undo, atomic invalid edit, stale revision, reload");
