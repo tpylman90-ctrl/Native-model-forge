@@ -72,6 +72,15 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private lateinit var shapeOverlay: DirectShapeOverlay
     private lateinit var faceOverlay: FaceSelectionOverlay
     private lateinit var faceButton: Button
+    private enum class StudioTask { BASE, SHAPE, DRAW, SIZE, CURVE, PULL, MIRROR, EXPORT }
+    private var studioActive=false
+    private var studioIndex=0
+    private lateinit var studioOverlay: LinearLayout
+    private lateinit var studioTitle: TextView
+    private lateinit var studioTip: TextView
+    private lateinit var studioAction: Button
+    private lateinit var studioBack: Button
+    private lateinit var studioNext: Button
     private lateinit var extrudeDepthField: EditText
     private lateinit var faceSelectionText: TextView
     private lateinit var extrudeApplyButton: Button
@@ -165,6 +174,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private val studioLights = mutableListOf<Int>()
     private val openCode = 401
     private val exportCode = 402
+    private val openProjectCode = 403
+    private val exportProjectCode = 404
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -291,9 +302,12 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         topScroll.addView(top)
         main.addView(topScroll)
+        top.addView(button("✦ STUDIO") { launchStudioGuide() })
         top.addView(button("＋ NEW BOX") { createBox() })
         top.addView(button("OPEN GLB") { requestOpen() })
         top.addView(button("SAVE GLB") { requestExport() })
+        top.addView(button("OPEN PROJECT") { requestOpenProject() })
+        top.addView(button("SAVE PROJECT") { requestExportProject() })
         top.addView(button("?" ) { showHelp() })
 
         val canvas = FrameLayout(this).apply { setBackgroundColor(Color.rgb(19, 29, 43)) }
@@ -324,6 +338,42 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         padParams.rightMargin = dp(6)
         padParams.bottomMargin = dp(8)
         canvas.addView(orbitPad, padParams)
+
+        studioOverlay=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setBackgroundColor(Color.argb(232,18,32,45))
+            setPadding(dp(9),dp(7),dp(9),dp(7))
+        }
+        studioTitle=textLabel("STUDIO GUIDE",13f,accent).also { studioOverlay.addView(it) }
+        studioTip=textLabel("One useful action at a time.",12f,text)
+            .also { studioOverlay.addView(it) }
+        studioAction=button("START") { performStudioTask() }.apply {
+            textSize=12f
+            minimumHeight=dp(42)
+        }
+        studioOverlay.addView(studioAction,LinearLayout.LayoutParams(-1,dp(42)))
+        val guideNav=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        studioOverlay.addView(guideNav)
+        studioBack=button("← BACK") { moveStudio(-1) }.apply {
+            textSize=11f
+            minimumHeight=dp(40)
+        }
+        studioNext=button("NEXT →") { moveStudio(1) }.apply {
+            textSize=11f
+            minimumHeight=dp(40)
+        }
+        guideNav.addView(studioBack,LinearLayout.LayoutParams(0,dp(40),1f))
+        guideNav.addView(studioNext,LinearLayout.LayoutParams(0,dp(40),1f))
+        studioOverlay.addView(button("CLOSE GUIDE") {
+            studioActive=false
+            updateStudioGuide()
+        }.apply { textSize=11f;minimumHeight=dp(37) },
+            LinearLayout.LayoutParams(-1,dp(37)))
+        val guideParams=FrameLayout.LayoutParams(dp(192),-2,Gravity.START or Gravity.BOTTOM)
+        guideParams.leftMargin=dp(6)
+        guideParams.bottomMargin=dp(8)
+        canvas.addView(studioOverlay,guideParams)
+        studioOverlay.visibility=View.GONE
 
         // Keep the next modeling step available even with the tool drawer hidden.
         // This button only occupies the top-right corner below the status line.
@@ -388,9 +438,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 cameraManipulator.jumpToBookmark(cameraManipulator.homeBookmark)
         })
         actionsRow.addView(button("⟳ TURN VIEW") { rotateCameraForCheck() })
-        actionsRow.addView(button("ADVANCED • SOON") {
-            toast("Face area selection works on generated boxes. Edge/vertex editing is coming later.")
-        })
+        actionsRow.addView(button("✦ STUDIO GUIDE") { launchStudioGuide() })
         drawer.addView(textLabel("FACE TOOLS • DRAW ON THE MODEL", 13f, accent))
         drawer.addView(button("✎ START DRAWING ON FACE") { if(!drawAreaMode) toggleDrawArea()
             else toast("Already drawing. Drag across a visible box face.") })
@@ -431,6 +479,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         stepRow.addView(button("− 0.10 m") { nudgeFace(-0.10f) })
         stepRow.addView(button("+ 0.10 m") { nudgeFace(0.10f) })
         drawer.addView(button("REMOVE SELECTED FACE EDIT") { removeFaceEdit() })
+        drawer.addView(textLabel("SYMMETRY • REPEAT AN EDIT ON THE OPPOSITE SIDE",13f,accent))
+        drawer.addView(button("⧉ MIRROR SELECTED DETAIL") { launchMirrorWizard() })
+        drawer.addView(button("✓ MODEL CHECK") { showModelReport() })
         drawer.addView(textLabel("Each face keeps its own shape, size, and depth. Other faces stay intact.", 11f, muted))
         drawer.addView(textLabel("Offline-first • GLB export • Community sharing planned, not active", 11f, muted))
         syncShapeUi()
@@ -511,6 +562,187 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         status.text = if (directShapeMode)
             "EDIT TOP: drag LEAN / WIDTH / LENGTH handles • lift finger to apply"
         else "View mode: drag to orbit • right joystick • pinch to zoom"
+    }
+
+    private fun launchStudioGuide() {
+        studioActive=true
+        if(currentShape==null) studioIndex=0
+        updateStudioGuide()
+        status.text="STUDIO GUIDE: choose a step and follow its controls"
+        if(!currentShapeIsUsable()) {
+            toast("Start with a blank or shaped base. Each step explains its next action.")
+        }
+    }
+
+    private fun currentShapeIsUsable():Boolean = currentShape!=null && !importedPreview
+
+    private fun updateStudioGuide() {
+        if(!::studioOverlay.isInitialized) return
+        studioOverlay.visibility=if(studioActive) View.VISIBLE else View.GONE
+        if(!studioActive) return
+        studioIndex=studioIndex.coerceIn(0,StudioTask.values().size-1)
+        val titles=arrayOf(
+            "01 / 08  CREATE A BASE",
+            "02 / 08  SHAPE THE BODY",
+            "03 / 08  DRAW A DETAIL",
+            "04 / 08  SET ITS SIZE",
+            "05 / 08  CURVE THE SIDES",
+            "06 / 08  RAISE OR RECESS",
+            "07 / 08  MIRROR A DETAIL",
+            "08 / 08  SAVE YOUR WORK")
+        val tips=arrayOf(
+            "Start from a blank, hull or architectural block. All can be reshaped.",
+            "Drag the colored top handles, or use exact dimension controls.",
+            "Draw a region on a face. Your touch defines its initial footprint.",
+            "Drag GOLD corners; the opposite corner stays fixed.",
+            "Bend the four CYAN edge handles. Undo can restore any bend.",
+            "Drag the WHITE handle for depth; negative values make a recess.",
+            "Choose a saved face detail and reflect it onto the opposite face.",
+            "Save an EDITABLE project first. Export GLB for games and sharing.")
+        val actions=arrayOf(
+            "CHOOSE BASE", "SHAPE ON MODEL", "START DRAWING",
+            "EDIT SIZE", "BEND EDGES", "EDIT DEPTH",
+            "MIRROR WIZARD", "SAVE OR EXPORT")
+        studioTitle.text=titles[studioIndex]
+        studioTip.text=tips[studioIndex]
+        studioAction.text=actions[studioIndex]
+        studioBack.isEnabled=studioIndex>0
+        studioNext.isEnabled=studioIndex<StudioTask.values().size-1
+    }
+
+    private fun moveStudio(delta:Int) {
+        studioIndex=(studioIndex+delta).coerceIn(0,StudioTask.values().size-1)
+        updateStudioGuide()
+        status.text="STUDIO GUIDE: "+studioTitle.text
+    }
+
+    private fun performStudioTask() {
+        val task=StudioTask.values()[studioIndex]
+        if(task==StudioTask.BASE) {
+            chooseStudioStarter()
+            return
+        }
+        if(task==StudioTask.EXPORT) {
+            val choices=arrayOf(
+                "Check geometry quality and dimensions",
+                "Save editable project (.mforge) • preserves modeling controls",
+                "Export game-ready GLB • portable triangle mesh",
+                "Open an earlier editable project"
+            )
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Save and share • Choose format")
+                .setItems(choices) { _,which ->
+                    when(which) {
+                        0 -> showModelReport()
+                        1 -> requestExportProject()
+                        2 -> requestExport()
+                        else -> requestOpenProject()
+                    }
+                }.setNegativeButton("CANCEL",null).show()
+            return
+        }
+        if(!currentShapeIsUsable()) {
+            toast("Create an editable base first, then continue to this stage.")
+            studioIndex=0
+            updateStudioGuide()
+            return
+        }
+        when(task) {
+            StudioTask.SHAPE -> {
+                directShapeMode=true
+                faceMode=false;drawAreaMode=false;selectedFace=null
+                resetRegionDrag()
+                syncShapeUi()
+                setDrawerVisible(false)
+                status.text="SHAPE: drag LEAN, WIDTH and LENGTH on top of the model"
+            }
+            StudioTask.DRAW -> {
+                if(!drawAreaMode) toggleDrawArea()
+                status.text="DRAW: touch a visible face and stretch the selected area"
+            }
+            StudioTask.SIZE,StudioTask.CURVE,StudioTask.PULL -> {
+                faceMode=true
+                drawAreaMode=false
+                directShapeMode=false
+                regionStage=when(task) {
+                    StudioTask.SIZE->RegionStage.SIZE
+                    StudioTask.CURVE->RegionStage.CURVE
+                    else->RegionStage.PULL
+                }
+                resetRegionDrag()
+                syncShapeUi()
+                setDrawerVisible(false)
+                status.text=if(selectedFace!=null) stageInstructions()
+                    else "Tap a face to select it, then repeat this guide step"
+            }
+            StudioTask.MIRROR -> launchMirrorWizard()
+            else -> Unit
+        }
+    }
+
+    private fun chooseStudioStarter() {
+        val presets=arrayOf(
+            "Simple block • 2 × 1 × 3 m",
+            "Hovercraft hull blank • 4.5 × 2.1 × 8.4 m",
+            "Building block • 5 × 3 × 6 m",
+            "Small panel blank • 1.5 × 0.3 × 2.5 m"
+        )
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Create a base • Step 1 of 8")
+            .setMessage("Choose a starting shape. Every option remains fully editable using the same native modeling controls.")
+            .setItems(presets) { _,which ->
+                val shapes=listOf(
+                    Shape(2f,1f,3f),
+                    Shape(4.5f,2.1f,8.4f,0.82f,0.9f,0f),
+                    Shape(5f,3f,6f),
+                    Shape(1.5f,0.3f,2.5f)
+                )
+                val preset=shapes[which]
+                if(currentShape!=null) {
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle("Replace current editable base?")
+                        .setMessage("Creating a new base replaces the active editable shape and its session history. Save the current .mforge project first if you want to keep it.")
+                        .setNegativeButton("KEEP CURRENT",null)
+                        .setPositiveButton("CREATE NEW") { _,_ -> createStudioPreset(preset) }
+                        .show()
+                } else createStudioPreset(preset)
+            }
+            .setNegativeButton("CANCEL",null).show()
+    }
+
+    private fun createStudioPreset(preset:Shape) {
+        val oldShape=currentShape
+        val oldNative=if(oldShape!=null) NativeProject.snapshot() else null
+        val oldGlb=currentGlb
+        val oldName=currentName
+        val oldImported=importedPreview
+        try {
+            // Test geometry first, before replacing the previous native document.
+            NativeGeometry.generateProfiledBox(
+                preset.width,preset.height,preset.length,
+                preset.topWidth,preset.topLength,preset.shiftX)
+            NativeProject.resetAndCreate(
+                preset.width,preset.height,preset.length,
+                preset.topWidth,preset.topLength,preset.shiftX)
+            if(!renderShape(preset)) throw IllegalStateException("New base could not render")
+            saveWorkingShape()
+            directShapeMode=false;faceMode=false;drawAreaMode=false;selectedFace=null
+            resetRegionDrag()
+            syncShapeUi()
+            studioIndex=1
+            updateStudioGuide()
+            status.text="Base created • NEXT: shape the body or draw a detail"
+            toast("Base created. Continue with Step 2 to reshape it.")
+        } catch(error:Exception) {
+            try {
+                if(oldNative!=null) NativeProject.load(oldNative) else NativeProject.clear()
+                if(oldShape!=null) renderShape(oldShape)
+                else if(oldGlb!=null) present(oldGlb,oldName,oldImported)
+            } catch(rollback:Exception) {
+                Log.e("ModelForgeStudio","Could not restore earlier shape",rollback)
+            }
+            toast("Base not created: "+(error.message?:"unsupported dimensions"))
+        }
     }
 
     private fun toggleFaceMode() {
@@ -953,6 +1185,74 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         Choreographer.getInstance().postFrameCallback(this)
     }
 
+    private fun requestOpenProject() {
+        val intent=Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+        startActivityForResult(intent,openProjectCode)
+    }
+
+    private fun requestExportProject() {
+        if(currentShape==null) {
+            toast("Open or create an editable box before saving a project.")
+            return
+        }
+        val intent=Intent(Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/octet-stream")
+        intent.putExtra(Intent.EXTRA_TITLE,"ModelForge-Editable.mforge")
+        startActivityForResult(intent,exportProjectCode)
+    }
+
+    private fun readEditableProject(uri:android.net.Uri) {
+        val raw=contentResolver.openInputStream(uri)?.use { input ->
+            val stream=java.io.ByteArrayOutputStream()
+            val buffer=ByteArray(16*1024)
+            while(true) {
+                val count=input.read(buffer)
+                if(count<0) break
+                require(stream.size()+count<=1024*1024) {
+                    "Editable projects must be smaller than 1 MB"
+                }
+                stream.write(buffer,0,count)
+            }
+            String(stream.toByteArray(),StandardCharsets.UTF_8)
+        } ?: throw IllegalArgumentException("Project document could not be read")
+        require(raw.startsWith("MFORGE_DOC ")) {
+            "Not a Model Forge editable project; use OPEN GLB for meshes"
+        }
+        val oldShape=currentShape
+        val oldGlb=currentGlb
+        val oldName=currentName
+        val oldImported=importedPreview
+        val oldNative=if(oldShape!=null) NativeProject.snapshot() else null
+        var loaded=false
+        try {
+            // Native parse validates a candidate before replacing its document.
+            NativeProject.load(raw)
+            loaded=true
+            val shape=fromNative() ?: throw IllegalArgumentException("No editable shape in project")
+            if(!renderShape(shape)) throw IllegalArgumentException("Project preview could not render")
+            faceMode=false;drawAreaMode=false;directShapeMode=false;selectedFace=null
+            resetRegionDrag()
+            saveWorkingShape()
+            syncShapeUi()
+            status.text="Editable project restored • continue modeling"
+            toast("Editable project opened. All face curves and dimensions restored.")
+        } catch(error:Exception) {
+            if(loaded) {
+                try {
+                    if(oldNative!=null) NativeProject.load(oldNative) else NativeProject.clear()
+                    if(oldShape!=null) renderShape(oldShape)
+                    else if(oldGlb!=null) present(oldGlb,oldName,oldImported)
+                } catch(rollback:Exception) {
+                    Log.e("ModelForgeProject","Could not restore prior preview",rollback)
+                }
+            }
+            throw error
+        }
+    }
+
     private fun requestOpen() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
@@ -975,7 +1275,16 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
-            if (requestCode == openCode) {
+            if(requestCode==openProjectCode) {
+                readEditableProject(uri)
+            } else if(requestCode==exportProjectCode) {
+                require(currentShape!=null) { "Only generated boxes have editable projects" }
+                val snapshot=NativeProject.snapshot().toByteArray(StandardCharsets.UTF_8)
+                require(snapshot.size<=1024*1024) { "Project exceeded size limit" }
+                contentResolver.openOutputStream(uri,"w")?.use { it.write(snapshot) }
+                    ?: throw IllegalArgumentException("Could not write editable project")
+                toast("Editable .mforge project saved with dimensions and all face details.")
+            } else if (requestCode == openCode) {
                 val bytes = contentResolver.openInputStream(uri)?.use { input ->
                     // Limit imported models to protect memory on budget Android phones.
                     val stream = java.io.ByteArrayOutputStream()
@@ -1003,6 +1312,74 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         } catch (error: Exception) {
             toast("File operation failed: " + (error.message ?: "unknown error"))
         }
+    }
+
+    private fun showModelReport() {
+        val shape=currentShape
+        val mesh=currentGeneratedMesh
+        if(shape==null || mesh==null) {
+            toast("Model Check currently audits editable native solids. Imported GLBs remain preview-only.")
+            return
+        }
+        val min=FloatArray(3) { Float.POSITIVE_INFINITY }
+        val max=FloatArray(3) { Float.NEGATIVE_INFINITY }
+        for(v in mesh.indices step 6) {
+            for(axis in 0..2) {
+                min[axis]=kotlin.math.min(min[axis],mesh[v+axis])
+                max[axis]=kotlin.math.max(max[axis],mesh[v+axis])
+            }
+        }
+        val span=FloatArray(3) { max[it]-min[it] }
+        val crossEpsilon=maxOf(1e-20f,
+            maxOf(span[0],span[1],span[2]).let { it*it*1e-12f })
+        var degenerate=0
+        var flipped=0
+        val triangles=mesh.size/18
+        for(t in 0 until triangles) {
+            val i=t*18
+            val ax=mesh[i+6]-mesh[i]
+            val ay=mesh[i+7]-mesh[i+1]
+            val az=mesh[i+8]-mesh[i+2]
+            val bx=mesh[i+12]-mesh[i]
+            val by=mesh[i+13]-mesh[i+1]
+            val bz=mesh[i+14]-mesh[i+2]
+            val cx=ay*bz-az*by
+            val cy=az*bx-ax*bz
+            val cz=ax*by-ay*bx
+            val length=kotlin.math.sqrt(cx*cx+cy*cy+cz*cz)
+            if(!length.isFinite() || length<crossEpsilon) degenerate++
+            else if(cx*mesh[i+3]+cy*mesh[i+4]+cz*mesh[i+5]<0f) flipped++
+        }
+        val active=shape.areas.count { it.kind>=0 }
+        val curved=shape.areas.count { it.kind==2 }
+        val report=buildString {
+            append("Base dimensions: ")
+            append(String.format(java.util.Locale.US,"%.2f × %.2f × %.2f m",
+                shape.width,shape.height,shape.length))
+            append("\nGenerated bounds: ")
+            append(String.format(java.util.Locale.US,"%.2f × %.2f × %.2f m",
+                span[0],span[1],span[2]))
+            append("\nTriangles: ");append(triangles)
+            append("\nOriginal faces with editable features: ");append(active);append("/6")
+            append("\nCurved face features: ");append(curved)
+            append("\nDegenerate triangles: ");append(degenerate)
+            append("\nReversed triangle normals: ");append(flipped)
+            append("\nGLB size: ");append((currentGlb?.size ?: 0)/1024);append(" KB")
+            append("\nEditable recovery copy: ")
+            append(if(projectFile.baseFile.exists()) "present" else "not yet saved")
+            append("\n\n")
+            append(if(degenerate==0 && flipped==0)
+                "Basic mesh validation passed. No degenerate or reversed triangles detected."
+            else "Geometry warning: inspect the affected surfaces before export.")
+            append("\n\nThis is a basic numerical mesh check, not a complete watertightness or self-intersection certification.")
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Model Check • Geometry & Project")
+            .setMessage(report)
+            .setPositiveButton("SAVE PROJECT") { _,_ -> requestExportProject() }
+            .setNeutralButton("EXPORT GLB") { _,_ -> requestExport() }
+            .setNegativeButton("CLOSE",null)
+            .show()
     }
 
     private fun showHelp() {
@@ -1402,6 +1779,77 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             status.text="Area not applied • original shape preserved"
             toast("Area not applied: " + (error.message ?: "invalid geometry"))
             return false
+        }
+    }
+
+    private fun launchMirrorWizard() {
+        val shape=currentShape ?: run {
+            toast("Mirror works on an editable generated box.");return
+        }
+        val source=selectedFace ?: run {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Mirror detail • Step 1 of 2")
+                .setMessage("Select a face containing a drawn or extruded region. Then return here to mirror it to the opposite side.")
+                .setPositiveButton("SELECT FACE") { _,_ ->
+                    if(!faceMode) toggleFaceMode()
+                    setDrawerVisible(false)
+                }
+                .setNegativeButton("CANCEL",null).show()
+            return
+        }
+        val feature=shape.areas[source]
+        if(feature.kind<0) {
+            toast("This face has no saved region to mirror. Draw an area first.")
+            return
+        }
+        val destination=source xor 1
+        val existing=shape.areas[destination].kind>=0
+        val targetName=faceName(destination)
+        val message=buildString {
+            append("SOURCE: ");append(faceName(source))
+            append("\nTARGET: ");append(targetName)
+            append("\n\nRegion: ")
+            append(when(feature.kind) {0->"Rectangle";1->"Oval";else->"Curved"})
+            append(" • ");append((feature.width*100).toInt())
+            append("% × ");append((feature.height*100).toInt());append("% of face")
+            append("\nDepth: ");append(String.format(java.util.Locale.US,"%+.2f m",feature.depth))
+            append("\n\nThe region will be reflected across the model with its curved edges and offset mirrored correctly.")
+            if(existing) append("\n\nCAUTION: The opposite face already contains a region. This will replace ONLY that opposite face's edit, and you can Undo.")
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Mirror detail • Step 2 of 2")
+            .setMessage(message)
+            .setNegativeButton("BACK",null)
+            .setPositiveButton(if(existing) "REPLACE & MIRROR" else "MIRROR DETAIL") { _,_ ->
+                applyMirror(source,existing)
+            }.show()
+    }
+
+    private fun applyMirror(source:Int,overwrite:Boolean) {
+        val old=currentShape ?: return
+        var applied=false
+        try {
+            val target=NativeProject.mirrorFaceRegion(source,overwrite)
+            applied=true
+            require(target==(source xor 1)) { "Unexpected mirror destination" }
+            val reflected=fromNative() ?: throw IllegalArgumentException("Mirrored project is unavailable")
+            if(!renderShape(reflected)) throw IllegalStateException("Mirror could not be rendered")
+            saveWorkingShape()
+            selectedFace=source
+            syncRegionUi(source)
+            syncShapeUi()
+            status.text=faceName(source)+" detail mirrored onto "+faceName(target)+
+                " • Undo/Redo supported"
+            toast("Mirror applied to "+faceName(target)+". The other faces are unchanged.")
+        } catch(error:Exception) {
+            if(applied) {
+                try {NativeProject.undo();renderShape(old)}
+                catch(rollback:Exception) {
+                    Log.e("ModelForgeMirror","Mirror rollback failed",rollback)
+                }
+            }
+            Log.e("ModelForgeMirror","Mirror operation failed",error)
+            toast("Mirror not applied: "+(error.message?:"unknown error"))
         }
     }
 

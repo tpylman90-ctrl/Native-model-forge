@@ -78,6 +78,18 @@ Following the v0.7.1 phone confirmation that bending works, touch drawing has be
 
 Only the generated box's original faces are editable, still with one selected region per face. This is not arbitrary vertex-based sculpting or imported-GLB topology editing. See [milestone 07](docs/FOUNDATION_MILESTONE_07.md).
 
+## v0.8 Studio Guide, portable projects, symmetry and model inspection
+
+The optional **✦ STUDIO** button opens an eight-step guided path: **Create Base → Shape Body → Draw Detail → Size → Curve → Pull → Mirror → Save**. A small dismissible guide stays visible near the viewport's lower-left corner and activates each existing modeling tool, with Back/Next to navigate at your own pace. It includes starter body blanks and a safety confirmation before replacing the current model. The guide does not add hidden cloud dependencies or block advanced manual controls.
+
+**Editable projects:** **SAVE PROJECT / OPEN PROJECT** use Android Files to save/load the native `.mforge` editable document, preserving box dimensions, face-region shapes, positions, curves and extrusion depths. GLB remains a separate portable *render mesh*, not a round-trippable editable project; imported GLBs remain preview-only. Local Android private autosave remains. Versioned native parser and 1 MB size limit protect project imports.
+
+**Mirror detail:** Select a modified face, choose **MIRROR SELECTED DETAIL**, review the opposite face and any overwrite warning, then confirm. Native C++ reflects offsets and curved edges with a single undoable transaction; the other four faces are untouched. This is a face-to-opposite-face parametric symmetry tool for the generated box, not arbitrary cross-model mirroring.
+
+**Model Check:** Audits generated dimensions, triangle count, basic degeneracy, normal direction and GLB size, then offers Save Editable Project or Export GLB. It is **not** a general watertight/self-intersection proof.
+
+The public DEV signing identity remains pinned, and `versionCode 13` is intended to upgrade from v0.7.2 in place. See [milestone 08](docs/FOUNDATION_MILESTONE_08.md) and [full studio roadmap](docs/STUDIO_ROADMAP.md).
+
 ## First real-user gate
 
 A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.

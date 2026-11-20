@@ -119,7 +119,7 @@ jobs:
           assert match, "Cannot find APK signing certificate SHA-256"
           assert match.group(1).lower() == expected, "APK no longer uses the pinned dev signing key"
           assert "package: name='com.modelforge.nativeeditor.dev'" in badging, "DEV package ID missing"
-          assert "versionCode='12'" in badging, "DEV versionCode missing"
+          assert "versionCode='13'" in badging, "DEV versionCode missing"
           assert "Model Forge DEV" in badging, "DEV app label missing"
           print("DEV_SIGNING: PASS same pinned signing certificate, isolated application ID, versionCode and label")
           PY
@@ -182,6 +182,30 @@ jobs:
           assert "regionStage=RegionStage.SIZE" in s[s.index("if(region!=null && dx*dx"): ]
           assert "viewer.onTouchEvent(event)" in s
           print("REGION_SIZE_STAGE: PASS live corner resize, step transitions and camera regression")
+          PY
+      - name: Guard guided studio, editable projects, native mirror and model report
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          ui=Path("app/src/main/java/com/modelforge/nativeeditor/MainActivity.kt").read_text()
+          native=Path("app/src/main/cpp/document.cpp").read_text()
+          bridge=Path("app/src/main/cpp/project_bridge.cpp").read_text()
+          tests=Path("app/src/main/cpp/tests/document_test.cpp").read_text()
+          assert "private enum class StudioTask" in ui
+          for step in ("BASE","SHAPE","DRAW","SIZE","CURVE","PULL","MIRROR","EXPORT"):
+              assert step in ui[ui.index("private enum class StudioTask"):ui.index("private var studioActive")]
+          for required in ("launchStudioGuide()","performStudioTask()","updateStudioGuide()",
+              "requestOpenProject()","requestExportProject()","readEditableProject(uri)",
+              "showModelReport()","launchMirrorWizard()","NativeProject.mirrorFaceRegion("):
+              assert required in ui, required
+          assert "private val openProjectCode = 403" in ui
+          assert "private val exportProjectCode = 404" in ui
+          assert "MFORGE_DOC " in ui and "1024*1024" in ui
+          assert "mirrorFaceRegion(" in native and "validate(*match)" in native
+          assert "sourceFace^1" in native and "overwrite" in native
+          assert "Java_com_modelforge_nativeeditor_NativeProject_mirrorFaceRegion" in bridge
+          assert "MODEL_FORGE_MIRROR: PASS" in tests
+          print("STUDIO_FOUNDATION: PASS guided tasks, project roundtrip paths, symmetry and QA")
           PY
       - name: Audit APK includes model core, DEX and manifest
         shell: bash

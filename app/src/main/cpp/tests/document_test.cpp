@@ -135,5 +135,51 @@ int main() {
 )");
     assert(v4.objects()[0].faceRegions[4].kind==0);
     assert(v4.objects()[0].faceRegions[4].curves[0]==0.0);
+
+    // Symmetry is a native atomic operation: orientation-aware offsets/curves,
+    // overwritten targets require confirmation, and undo reverts one feature.
+    forge::Document symmetric;
+    const auto symId=symmetric.insert(GeometryKind::PolygonMesh,"Mirror",
+        "generated:profiled_box",{4.5,2.2,8.4},symmetric.revision());
+    for(int origin:{0,2,4}) {
+        forge::FaceRegion source;
+        source.kind=2;
+        source.width=0.35;
+        source.height=0.52;
+        source.offsetU=0.3;source.offsetV=-0.2;
+        source.curves={{0.10,-0.07,0.15,-0.02}};
+        source.depthMetres=0.22;
+        symmetric.setFaceRegion(symId,origin,source,symmetric.revision());
+        const int opposite=origin^1;
+        assert(symmetric.mirrorFaceRegion(symId,origin,false,symmetric.revision())==opposite);
+        const auto& mirrored=symmetric.objects()[0].faceRegions[opposite];
+        assert(mirrored.kind==2 && mirrored.depthMetres==0.22);
+        if(origin<4) {
+            assert(mirrored.offsetU==-source.offsetU);
+            assert(mirrored.offsetV==source.offsetV);
+            assert(mirrored.curves[1]==source.curves[3]);
+            assert(mirrored.curves[3]==source.curves[1]);
+        } else {
+            assert(mirrored.offsetV==-source.offsetV);
+            assert(mirrored.offsetU==source.offsetU);
+            assert(mirrored.curves[0]==source.curves[2]);
+            assert(mirrored.curves[2]==source.curves[0]);
+        }
+        const auto checkpoint=symmetric.serialize();
+        bool overwriteBlocked=false;
+        try {symmetric.mirrorFaceRegion(symId,origin,false,symmetric.revision());}
+        catch(const std::invalid_argument&) {overwriteBlocked=true;}
+        assert(overwriteBlocked && symmetric.serialize()==checkpoint);
+        assert(symmetric.undo() && symmetric.objects()[0].faceRegions[opposite].kind==-1);
+        assert(symmetric.redo() && symmetric.objects()[0].faceRegions[opposite].kind==2);
+        assert(forge::Document::parse(symmetric.serialize()).serialize()==symmetric.serialize());
+    }
+    forge::FaceRegion source2;
+    source2.kind=0; source2.depthMetres=-0.12;
+    symmetric.setFaceRegion(symId,1,source2,symmetric.revision());
+    assert(symmetric.mirrorFaceRegion(symId,0,true,symmetric.revision())==1);
+    assert(symmetric.objects()[0].faceRegions[1].kind==2);
+    assert(symmetric.undo() && symmetric.objects()[0].faceRegions[1].depthMetres==-0.12);
+    std::cout<<"MODEL_FORGE_MIRROR: PASS three orientations, overwrite guard, undo/redo and save/load"<<std::endl;
     std::cout<<"MODEL_FORGE_DOCUMENT: PASS revision guard, stable IDs, hybrid kinds, rollback, save/load, undo/redo\n";
 }
