@@ -44,7 +44,7 @@ jobs:
           yes | "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.0.12077973' 'cmake;3.22.1'
       - name: Compile native Android APK and JNI C++ modeling library
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        run: gradle --no-daemon --stacktrace :app:assembleDebug :app:testDebugUnitTest
       - name: Assert Filament initialization order in activity source
         run: |
           python3 - <<'PY'
@@ -119,7 +119,7 @@ jobs:
           assert match, "Cannot find APK signing certificate SHA-256"
           assert match.group(1).lower() == expected, "APK no longer uses the pinned dev signing key"
           assert "package: name='com.modelforge.nativeeditor.dev'" in badging, "DEV package ID missing"
-          assert "versionCode='13'" in badging, "DEV versionCode missing"
+          assert "versionCode='14'" in badging, "DEV versionCode missing"
           assert "Model Forge DEV" in badging, "DEV app label missing"
           print("DEV_SIGNING: PASS same pinned signing certificate, isolated application ID, versionCode and label")
           PY
@@ -206,6 +206,29 @@ jobs:
           assert "Java_com_modelforge_nativeeditor_NativeProject_mirrorFaceRegion" in bridge
           assert "MODEL_FORGE_MIRROR: PASS" in tests
           print("STUDIO_FOUNDATION: PASS guided tasks, project roundtrip paths, symmetry and QA")
+          PY
+      - name: Guard imported GLB component editor and guided import/export
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path("app/src/main/java/com/modelforge/nativeeditor")
+          glb=(root/"GlbWorkshop.kt").read_text()
+          ui=(root/"MainActivity.kt").read_text()
+          test=Path("app/src/test/java/com/modelforge/nativeeditor/GlbWorkshopTest.kt").read_text()
+          for label in ("fun parts()","fun previewPart(","fun applyPart(","fun previewNewPart(","fun addPart(",
+                        "fun undo()","fun redo()","fun export()"):
+              assert label in glb,label
+          for label in ("chooseCraftPart()","chooseCraftOperation(part)","showPartAmounts(part",
+                        "confirmPartPreview(","chooseCraftAddPart()","undoCraft()","redoCraft()"):
+              assert label in ui,label
+          assert "craftWorkshop=editor" in ui and "GlbWorkshop.open(bytes)" in ui
+          assert "craftDirty=false" in ui and "Save GLB" in ui
+          assert "preview-before" not in ui
+          assert "Open a hovercraft GLB" in ui
+          for marker in ("previewIsNonDestructive","newPanelIsRealGeometry",
+                         "animatedNodesAndOutOfRangeTransforms"):
+              assert marker in test
+          print("CRAFT_EDITOR: PASS imported components, previews, accessory creation and safety guards")
           PY
       - name: Audit APK includes model core, DEX and manifest
         shell: bash
