@@ -98,6 +98,14 @@ The editor is no longer limited to inspecting imported cars. After **OPEN GLB**,
 
 This is still **component transform editing**, not individual imported vertex or surface topology editing, booleans, precision CAD, or arbitrary bevels. Unsupported glTF structures stay preview-only rather than risking corruption. Check [milestone 09](docs/FOUNDATION_MILESTONE_09.md) and [hovercraft-ready roadmap](docs/HOVERCRAFT_WORKSHOP_PLAN.md).
 
+## v0.10 offline compressed object library
+
+A new **▦ LIBRARY** toolbar action provides 18 small, original CC0-dedicated CAD-like objects (primitives, bodywork blanks, bolts, nozzles, intake frames, grilles, etc.). The assets are stored as individual `.glb` files **inside one compressed `.mfpack` ZIP**, generated from source at build time; catalog browsing only reads the manifest, and **only the selected object's GLB is inflated into memory** when previewed/inserted.
+
+The guided flow is **Browse/Search → Preview → Add to Craft / Start Assembly → Edit Part → Save GLB**. The user can import more compressed packs through Android Files; the ZIP is kept compressed in private app storage. Each entry requires a known size and SHA-256, with safe filenames and bounded extraction. Additional packs made from verified CC0 Blender exports can use the provided `tools/package_blender_cc0_glbs.py` packager. The initial pack contains our own originals, **not** indiscriminately redistributed BlenderKit or proprietary models.
+
+This is an efficient **GLB parts library**, not meshopt/Draco compression or full Blender `.blend` support. Highly complex textured/multi-mesh Blender objects still need a future importer. See [asset pack format and licenses](docs/ASSET_PACKS.md) and [phone acceptance](docs/FOUNDATION_MILESTONE_10.md).
+
 ## First real-user gate
 
 A first-time user should create a box, change dimensions, taper and shift the top, undo/redo, inspect every face, collapse/open tools, export to phone storage, reopen the GLB, and see the same size and shading. Measure phone frame rate and crash-free startup. Only after that do we implement a real editable topology core.

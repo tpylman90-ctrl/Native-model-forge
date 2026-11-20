@@ -57,6 +57,16 @@ class GlbWorkshop private constructor(
             Starter("Body fairing blank",1.4f,0.5f,2.1f,0.7f,0.76f,
                 floatArrayOf(0.36f,0.47f,0.59f,1f))
         )
+        /** Empty offline assembly, populated when the first library object is added. */
+        fun blank():GlbWorkshop {
+            val root=JsonParser.parseString("""
+                {"asset":{"version":"2.0","generator":"Model Forge Assembly"},
+                 "scene":0,"scenes":[{"nodes":[]}],"nodes":[],"meshes":[],
+                 "buffers":[{"byteLength":0}],"bufferViews":[],"accessors":[]}
+            """.trimIndent()).asJsonObject
+            return GlbWorkshop(root,byteArrayOf(),0)
+        }
+
         fun open(bytes: ByteArray): GlbWorkshop {
             require(bytes.size in 28..(80*1024*1024)) { "GLB size is outside the phone editing limit" }
             val file=ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -267,7 +277,7 @@ class GlbWorkshop private constructor(
 
     fun addPart(name:String,packed:FloatArray,color:FloatArray):ByteArray {
         require(name.length in 1..80) { "Name must be 1 to 80 characters" }
-        require(packed.size>=216 && packed.size%18==0 && packed.size<=600_000 &&
+        require(packed.size>=18 && packed.size%18==0 && packed.size<=600_000 &&
                 packed.all {it.isFinite()}) { "Generated mesh has invalid vertices" }
         require(color.size==4 && color.all {it.isFinite()&&it in 0f..1f}) {
             "Invalid material color"

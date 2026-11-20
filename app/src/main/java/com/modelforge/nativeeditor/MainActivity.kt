@@ -30,6 +30,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.ListView
+import android.widget.Spinner
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.text.TextWatcher
 import android.text.Editable
@@ -183,6 +185,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private val exportCode = 402
     private val openProjectCode = 403
     private val exportProjectCode = 404
+    private val importAssetPackCode = 405
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -314,6 +317,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         top.addView(button("OPEN GLB") { requestOpen() })
         craftEditButton=button("✦ EDIT CRAFT") { showCraftWorkshop() }
         top.addView(craftEditButton)
+        top.addView(button("▦ LIBRARY") { showAssetLibrary() })
         top.addView(button("SAVE GLB") { requestExport() })
         top.addView(button("OPEN PROJECT") { requestOpenProject() })
         top.addView(button("SAVE PROJECT") { requestExportProject() })
@@ -1334,7 +1338,13 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
-            if(requestCode==openProjectCode) {
+            if(requestCode==importAssetPackCode) {
+                val pack=contentResolver.openInputStream(uri)?.use {
+                    ForgeAssetPack.installExternal(this,it)
+                } ?:throw IllegalArgumentException("Compressed pack cannot be opened")
+                toast("Installed "+pack.title+" with "+pack.entries.size+" compressed objects.")
+                showAssetLibrary()
+            } else if(requestCode==openProjectCode) {
                 readEditableProject(uri)
             } else if(requestCode==exportProjectCode) {
                 require(currentShape!=null) { "Only generated boxes have editable projects" }
@@ -1465,6 +1475,184 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     // Imported GLB Workshop: use the original craft and its named mesh nodes.
     // The signed GLB remains the only export. We never pretend this turns
     // a triangular body panel into a CAD surface or Blender edit mesh.
+    /** A library catalog does not decompress models. We open a ZIP member
+     * only after the user taps that entry and chooses to preview it. */
+    private fun showAssetLibrary() {
+        val packs=ArrayList<ForgeAssetPack>()
+        try {
+            packs.add(ForgeAssetPack.bundled(this))
+            File(filesDir,"forge-asset-packs").listFiles { file ->
+                file.isFile && file.extension=="mfpack"
+            }?.sortedBy{it.name}?.forEach { file ->
+                try { packs.add(ForgeAssetPack.open(file)) }
+                catch(error:Exception) {Log.w("ForgeAssetPack","Ignored unsafe pack "+file.name,error)}
+            }
+        } catch(error:Exception) {
+            Log.e("ForgeAssetPack","Built-in asset library unavailable",error)
+            toast("Asset library unavailable: "+(error.message?:"pack missing"))
+            return
+        }
+        val catalog=packs.flatMap { pack ->
+            pack.entries.map {asset -> pack to asset}
+        }
+        val categories=listOf("ALL CATEGORIES")+
+            catalog.map {it.second.category}.distinct().sorted()
+        val layout=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(14),dp(5),dp(14),dp(6))
+        }
+        layout.addView(textLabel(
+            catalog.size.toString()+" compressed GLB objects • tap one to preview. "+
+            "No object is unpacked until selected.",12f,muted))
+        val search=EditText(this).apply {
+            hint="Search objects: pipe, nozzle, bolt, panel..."
+            setSingleLine(true)
+            textSize=16f
+        }
+        layout.addView(search,LinearLayout.LayoutParams(-1,dp(55)))
+        val category=Spinner(this)
+        val categoriesAdapter=ArrayAdapter(this,android.R.layout.simple_spinner_item,categories)
+        categoriesAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        category.adapter=categoriesAdapter
+        layout.addView(category,LinearLayout.LayoutParams(-1,dp(48)))
+        val list=ListView(this)
+        layout.addView(list,LinearLayout.LayoutParams(-1,dp(365)))
+        val lines=ArrayList<String>()
+        val adapter=ArrayAdapter(this,android.R.layout.simple_list_item_1,lines)
+        list.adapter=adapter
+        var filtered=catalog
+        fun update() {
+            val needle=search.text.toString().trim()
+            val chosen=category.selectedItem?.toString()?:"ALL CATEGORIES"
+            filtered=catalog.filter {pair ->
+                (chosen=="ALL CATEGORIES" || pair.second.category==chosen) &&
+                (needle.isBlank() || pair.second.title.contains(needle,true) ||
+                 pair.second.category.contains(needle,true) ||
+                 pair.first.title.contains(needle,true))
+            }
+            lines.clear()
+            lines.addAll(filtered.map {(pack,item) ->
+                item.title+"\n"+item.category+"  •  "+pack.title+
+                    "  •  "+item.license
+            })
+            adapter.notifyDataSetChanged()
+        }
+        category.onItemSelectedListener=object:AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent:AdapterView<*>?,view:View?,
+                                        position:Int,id:Long) {update()}
+            override fun onNothingSelected(parent:AdapterView<*>?) {update()}
+        }
+        search.addTextChangedListener(object:TextWatcher {
+            override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int)=Unit
+            override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) {update()}
+            override fun afterTextChanged(s:Editable?)=Unit
+        })
+        update()
+        val dialog=android.app.AlertDialog.Builder(this)
+            .setTitle("GLB OBJECT LIBRARY")
+            .setView(layout)
+            .setPositiveButton("IMPORT PACK") { _,_ ->
+                val intent=Intent(Intent.ACTION_OPEN_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("*/*")
+                startActivityForResult(intent,importAssetPackCode)
+            }
+            .setNegativeButton("CLOSE",null)
+            .create()
+        list.setOnItemClickListener { _,_,position,_ ->
+            val selected=filtered.getOrNull(position)?:return@setOnItemClickListener
+            dialog.dismiss()
+            previewLibraryAsset(selected.first,selected.second)
+        }
+        dialog.show()
+    }
+
+    /** Only one GLB is inflated and converted to triangles for insertion. */
+    private fun previewLibraryAsset(
+        pack:ForgeAssetPack,asset:ForgeAssetPack.Entry
+    ) {
+        val oldGlb=currentGlb
+        val oldName=currentName
+        val oldShape=currentShape
+        val oldImported=importedPreview
+        val oldWorkshop=craftWorkshop
+        val oldDirty=craftDirty
+        try {
+            val assetGlb=pack.selectedGlb(asset.id)
+            val mesh=LibraryGlbMesh.read(assetGlb)
+            require(mesh.vertices.size<=600_000) {
+                "Asset has too many triangles for the current mesh inserter"
+            }
+            if(!present(assetGlb,asset.title,true)) {
+                throw IllegalStateException("Library model preview failed")
+            }
+            fun restore() {
+                craftWorkshop=oldWorkshop
+                craftDirty=oldDirty
+                if(oldGlb!=null) {
+                    present(oldGlb,oldName,oldImported,oldShape)
+                    syncShapeUi()
+                }
+            }
+            val newAssembly=oldWorkshop==null
+            val notice=buildString {
+                append(asset.title)
+                append("\nCategory: ");append(asset.category)
+                append("\nLicense: ");append(asset.license)
+                append("\nSource: ");append(asset.source)
+                append("\nUncompressed GLB: ");append(asset.bytes/1024)
+                append(" KB")
+                if(newAssembly) append(
+                    "\n\nNo editable craft is loaded. Inserting this part "+
+                    "starts a NEW assembly. Your existing original model is not modified.")
+                else append(
+                    "\n\nThis part will be added as an independent component "+
+                    "to your current hovercraft. Its original meshes stay unchanged.")
+            }
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Preview • Keep this object?")
+                .setMessage(notice)
+                .setPositiveButton(if(newAssembly)"START ASSEMBLY" else "ADD TO CRAFT") { _,_ ->
+                    try {
+                        val editor=oldWorkshop?:GlbWorkshop.blank()
+                        val output=editor.addPart(asset.title,mesh.vertices,mesh.color)
+                        if(!present(output,
+                                if(newAssembly)"My Forge Assembly" else oldName,true)) {
+                            editor.undo()
+                            restore()
+                        } else {
+                            craftWorkshop=editor
+                            craftDirty=true
+                            if(newAssembly)NativeProject.clear()
+                            syncShapeUi()
+                            status.text=asset.title+
+                                " added to craft • choose EDIT CRAFT to place it • UNSAVED"
+                            toast("Inserted "+asset.title+
+                                ". Use EDIT CRAFT to size/position it, then SAVE GLB.")
+                        }
+                    } catch(error:Exception) {
+                        Log.e("ForgeAssetPack","Could not insert asset",error)
+                        restore()
+                        toast("Object not inserted: "+(error.message?:"invalid mesh"))
+                    }
+                }
+                .setNeutralButton("BACK TO LIBRARY") { _,_ ->
+                    restore()
+                    showAssetLibrary()
+                }
+                .setNegativeButton("CANCEL") { _,_ -> restore() }
+                .setOnCancelListener {restore()}
+                .show()
+        } catch(error:Exception) {
+            Log.w("ForgeAssetPack","Could not extract/preview selected object",error)
+            if(oldGlb!=null) present(oldGlb,oldName,oldImported,oldShape)
+            craftWorkshop=oldWorkshop
+            craftDirty=oldDirty
+            syncShapeUi()
+            toast("Cannot preview library object: "+(error.message?:"unsupported GLB"))
+        }
+    }
+
     private fun showCraftWorkshop() {
         val workshop=craftWorkshop
         if(!importedPreview || workshop==null) {
@@ -1477,11 +1665,12 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         }
         val options=arrayOf(
             "1  SELECT & EDIT AN EXISTING PART",
-            "2  ADD A NEW BODY PART",
-            "3  UNDO LAST CRAFT EDIT",
-            "4  REDO CRAFT EDIT",
-            "5  SAVE EDITED GLB",
-            "6  HOW CRAFT EDITING WORKS"
+            "2  BROWSE COMPRESSED GLB LIBRARY",
+            "3  ADD A NEW BODY PART",
+            "4  UNDO LAST CRAFT EDIT",
+            "5  REDO CRAFT EDIT",
+            "6  SAVE EDITED GLB",
+            "7  HOW CRAFT EDITING WORKS"
         )
         android.app.AlertDialog.Builder(this)
             .setTitle("CRAFT WORKSHOP • "+workshop.parts().size+" components")
@@ -1491,10 +1680,11 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             .setItems(options) { _,chosen ->
                 when(chosen) {
                     0 -> chooseCraftPart()
-                    1 -> chooseCraftAddPart()
-                    2 -> undoCraft()
-                    3 -> redoCraft()
-                    4 -> requestExport()
+                    1 -> showAssetLibrary()
+                    2 -> chooseCraftAddPart()
+                    3 -> undoCraft()
+                    4 -> redoCraft()
+                    5 -> requestExport()
                     else -> showCraftInstructions()
                 }
             }

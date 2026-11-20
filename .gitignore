@@ -12,3 +12,6 @@ local.properties
 *.keystore
 *.jks
 *.p12
+
+# Generated compressed GLB pack, rebuilt from audited CC0 generator.
+app/src/main/assets/packs/*.mfpack

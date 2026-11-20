@@ -37,8 +37,8 @@ android {
         applicationId 'com.modelforge.nativeeditor'
         minSdk 26
         targetSdk 35
-        versionCode 14
-        versionName '0.9.0-hovercraft-workshop'
+        versionCode 15
+        versionName '0.10.0-lazy-asset-library'
         ndk { abiFilters 'arm64-v8a' }
         externalNativeBuild { cmake { cppFlags '-std=c++17 -Wall -Wextra -Werror' } }
         manifestPlaceholders = [appLabel: 'Model Forge Native']
@@ -75,4 +75,17 @@ dependencies {
     implementation 'com.google.android.filament:filament-android:1.69.3'
     implementation 'com.google.android.filament:gltfio-android:1.69.3'
     implementation 'com.google.android.filament:filament-utils-android:1.69.3'
+}
+
+// Regenerate the small compressed CC0 basics pack during builds. We commit
+// the audited source generator, NOT 18 unpacked GLB binaries to the repo.
+def generatedPack = file('src/main/assets/packs/forge-basics.mfpack')
+def generateForgeBasics = tasks.register('generateForgeBasics', Exec) {
+    inputs.file(rootProject.file('tools/generate_forge_basics.py'))
+    outputs.file(generatedPack)
+    commandLine 'python3', rootProject.file('tools/generate_forge_basics.py').absolutePath,
+        '--output', generatedPack.absolutePath
+}
+tasks.matching { it.name == 'preBuild' }.configureEach {
+    dependsOn generateForgeBasics
 }
