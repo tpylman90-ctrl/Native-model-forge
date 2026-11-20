@@ -1,0 +1,41 @@
+name: Deploy Model Forge shared studio
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'studio/**'
+      - '.github/workflows/studio-pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: model-forge-studio-pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: emscripten-core/setup-emsdk@v15
+      - name: Test and compile the shared browser engine
+        run: |
+          node --test studio/tests/share_session.test.mjs
+          bash studio/build_web.sh
+          node --check studio/web/studio.js
+          node studio/tests/wasm-smoke.mjs
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Upload static studio
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: studio/web
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
