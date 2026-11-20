@@ -845,6 +845,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun createBox() {
+        if(warnBeforeLeavingCraft {createBox()})return
         try {
             val solid = Shape(
                 widthField.text.toString().toFloat(),
@@ -852,6 +853,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 lengthField.text.toString().toFloat()
             )
             if (renderShape(solid)) {
+                craftWorkshop=null
+                craftDirty=false
                 NativeProject.resetAndCreate(solid.width, solid.height, solid.length,
                     solid.topWidth, solid.topLength, solid.shiftX)
                 saveWorkingShape()
@@ -1214,7 +1217,25 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         Choreographer.getInstance().postFrameCallback(this)
     }
 
+    /** An imported craft is not autosaved as a box project.
+     * Never silently discard edits when switching documents. */
+    private fun warnBeforeLeavingCraft(proceed:()->Unit):Boolean {
+        if(!importedPreview || !craftDirty || craftWorkshop==null)return false
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Save your hovercraft changes?")
+            .setMessage("Your current craft has edits that have not been exported. Save GLB before switching files or creating a different model, or explicitly discard those changes.")
+            .setPositiveButton("SAVE GLB") { _,_ -> requestExport() }
+            .setNeutralButton("DISCARD") { _,_ ->
+                craftDirty=false
+                proceed()
+            }
+            .setNegativeButton("KEEP EDITING",null)
+            .show()
+        return true
+    }
+
     private fun requestOpenProject() {
+        if(warnBeforeLeavingCraft {requestOpenProject()})return
         val intent=Intent(Intent.ACTION_OPEN_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
             .setType("*/*")
@@ -1254,6 +1275,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         val oldGlb=currentGlb
         val oldName=currentName
         val oldImported=importedPreview
+        val oldWorkshop=craftWorkshop
+        val oldDirty=craftDirty
         val oldNative=if(oldShape!=null) NativeProject.snapshot() else null
         var loaded=false
         try {
@@ -1262,6 +1285,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             loaded=true
             val shape=fromNative() ?: throw IllegalArgumentException("No editable shape in project")
             if(!renderShape(shape)) throw IllegalArgumentException("Project preview could not render")
+            craftWorkshop=null
+            craftDirty=false
             faceMode=false;drawAreaMode=false;directShapeMode=false;selectedFace=null
             resetRegionDrag()
             saveWorkingShape()
@@ -1271,6 +1296,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         } catch(error:Exception) {
             if(loaded) {
                 try {
+                    craftWorkshop=oldWorkshop
+                    craftDirty=oldDirty
                     if(oldNative!=null) NativeProject.load(oldNative) else NativeProject.clear()
                     if(oldShape!=null) renderShape(oldShape)
                     else if(oldGlb!=null) present(oldGlb,oldName,oldImported)
@@ -1283,6 +1310,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     }
 
     private fun requestOpen() {
+        if(warnBeforeLeavingCraft {requestOpen()})return
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
             .setType("*/*")
