@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#111b29"><title>Model Forge AI Studio</title>
+  <link rel="stylesheet" href="./studio.css">
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head>
+<body>
+<header><div class="brand"><span>◈</span><div><strong>MODEL FORGE</strong><small>AI STUDIO · SHARED NATIVE ENGINE</small></div></div>
+<nav><button id="new">New body</button><label class="btn" for="open">Open .mforge</label><input id="open" type="file" accept=".mforge,text/plain" hidden><button id="save">Save .mforge</button><button id="export" class="primary">Export GLB</button></nav></header>
+<main>
+<section id="body-panel" class="panel">
+  <small class="kicker">OBJECT</small><h2>Shape body</h2><p>Real editable geometry in the Model Forge native C++ engine.</p>
+  <label>Part name<div class="inline"><input id="name" maxlength="128"><button id="rename">Rename</button></div></label>
+  <h3>Dimensions <small>metres</small></h3><div class="grid">
+    <label>Width (X)<input id="width" type="number" step=".1"></label>
+    <label>Height (Y)<input id="height" type="number" step=".1"></label>
+    <label>Length (Z)<input id="length" type="number" step=".1"></label>
+  </div>
+  <h3>Top surface profile</h3><div class="grid">
+    <label>Width scale<input id="topWidth" type="number" step=".05"></label>
+    <label>Length scale<input id="topLength" type="number" step=".05"></label>
+    <label>X shift<input id="shift" type="number" step=".025"></label>
+  </div>
+  <button id="reshape" class="wide">Apply body shape</button>
+  <div class="inline history"><button id="undo">↶ Undo</button><button id="redo">↷ Redo</button></div>
+  <p class="tip">Edits remain reversible. Save an editable project as .mforge, and export GLB for your games.</p>
+</section>
+<section class="viewer">
+  <div class="view-header"><b id="model-title">Studio Body</b><div><button id="fit">Fit</button><button id="wire">Wireframe off</button><span id="revision">Rev —</span></div></div>
+  <div id="viewport" role="application" aria-label="3D editor. Drag to orbit, scroll to zoom, tap a face to select.">
+    <div id="loading">Initializing C++ geometry engine…</div><div class="help">DRAG ORBIT · SCROLL ZOOM · TAP SELECT FACE</div><div id="face-pill">Top face selected</div>
+  </div>
+  <div class="viewer-foot">Native document / live WebAssembly mesh <span id="mesh-stats"></span></div>
+</section>
+<section id="face-panel" class="panel">
+  <small class="kicker">SURFACE</small><h2>Region editor</h2><p>Tap a surface, adjust its area, then apply its editable native feature.</p>
+  <label>Selected face<select id="face">
+    <option value="0">Front +Z</option><option value="1">Back −Z</option>
+    <option value="2">Right +X</option><option value="3">Left −X</option>
+    <option value="4">Top +Y</option><option value="5">Bottom −Y</option>
+  </select></label>
+  <label>Outline<select id="kind">
+    <option value="-1">No region</option><option value="0">Rectangle</option><option value="1">Oval</option><option value="2">Curved four-edge region</option>
+  </select></label>
+  <div class="grid">
+    <label>Width (0.15–0.85)<input id="regionWidth" type="number" step=".02"></label>
+    <label>Height (0.15–0.85)<input id="regionHeight" type="number" step=".02"></label>
+    <label>Offset U<input id="offsetU" type="number" step=".05"></label>
+    <label>Offset V<input id="offsetV" type="number" step=".05"></label>
+    <label>Pull / recess (m)<input id="depth" type="number" step=".05"></label>
+  </div>
+  <h3>Curved edges <small>−0.2 to 0.2</small></h3><div class="grid">
+    <label>Bottom<input id="curve0" type="number" step=".01"></label>
+    <label>Right<input id="curve1" type="number" step=".01"></label>
+    <label>Top<input id="curve2" type="number" step=".01"></label>
+    <label>Left<input id="curve3" type="number" step=".01"></label>
+  </div>
+  <button id="apply-region" class="wide">Apply face region</button><div class="inline"><button id="mirror">Mirror opposite</button><button id="clear-region">Clear region</button></div>
+  <details><summary>AI command console <small>local JSON + approval</small></summary>
+    <p>No remote agent is connected yet. You can paste reviewed commands and approve each change.</p>
+    <textarea id="command-json" rows="10" spellcheck="false"></textarea>
+    <div class="inline"><button id="template-command">Insert template</button><button class="primary" id="apply-command">Review &amp; Apply</button></div>
+  </details>
+</section>
+</main>
+<footer><output id="status" role="status" aria-live="polite">Loading engine…</output><span>STUDIO ALPHA · LOCAL ONLY</span></footer>
+<script type="module" src="./studio.js"></script>
+</body></html>

@@ -1,0 +1,41 @@
+name: Model Forge AI Studio
+on:
+  push:
+    branches: [main, 'feature/ai-studio-*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  studio-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test shared C++ studio engine
+        run: |
+          cmake -S studio -B build/studio -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build/studio --parallel 2
+          ctest --test-dir build/studio --output-on-failure
+      - name: Check browser JavaScript syntax
+        run: node --check studio/web/studio.js
+  studio-browser:
+    needs: studio-native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: emscripten-core/setup-emsdk@v15
+      - name: Build WebAssembly from the native engine
+        run: bash studio/build_web.sh
+      - name: Check browser engine assets
+        run: |
+          test -s studio/web/index.html
+          test -s studio/web/forge_core.js
+          test -s studio/web/forge_core.wasm
+          node --check studio/web/forge_core.js
+          node studio/tests/wasm-smoke.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ModelForge-AI-Studio-Browser
+          path: studio/web/
+          if-no-files-found: error
