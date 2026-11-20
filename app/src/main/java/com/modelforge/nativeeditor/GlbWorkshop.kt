@@ -260,6 +260,11 @@ class GlbWorkshop private constructor(
 
     /** Adds a real independent glTF mesh node using generated C++ triangles.
      * Existing buffer views, materials, images and mesh data are preserved. */
+    fun previewNewPart(name:String,packed:FloatArray,color:FloatArray):ByteArray {
+        val candidate=GlbWorkshop(document.deepCopy(),binary,usedBytes)
+        return candidate.addPart(name,packed,color)
+    }
+
     fun addPart(name:String,packed:FloatArray,color:FloatArray):ByteArray {
         require(name.length in 1..80) { "Name must be 1 to 80 characters" }
         require(packed.size>=216 && packed.size%18==0 && packed.size<=600_000 &&
