@@ -1430,6 +1430,328 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
             .show()
     }
 
+    // Imported GLB Workshop: use the original craft and its named mesh nodes.
+    // The signed GLB remains the only export. We never pretend this turns
+    // a triangular body panel into a CAD surface or Blender edit mesh.
+    private fun showCraftWorkshop() {
+        val workshop=craftWorkshop
+        if(!importedPreview || workshop==null) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Hovercraft Workshop")
+                .setMessage("Open a hovercraft GLB first. Model Forge will locate the named mesh parts and let you position, rotate or resize them. You can also add a new panel or pod to the craft.")
+                .setPositiveButton("OPEN GLB") { _,_ -> requestOpen() }
+                .setNegativeButton("CANCEL",null).show()
+            return
+        }
+        val options=arrayOf(
+            "1  SELECT & EDIT AN EXISTING PART",
+            "2  ADD A NEW BODY PART",
+            "3  UNDO LAST CRAFT EDIT",
+            "4  REDO CRAFT EDIT",
+            "5  SAVE EDITED GLB",
+            "6  HOW CRAFT EDITING WORKS"
+        )
+        android.app.AlertDialog.Builder(this)
+            .setTitle("CRAFT WORKSHOP • "+workshop.parts().size+" components")
+            .setMessage("Choose a guided action. Your original craft meshes, materials and hierarchy are preserved. Preview every modification before keeping it.\n\n"+
+                if(craftDirty) "UNSAVED CHANGES • Save GLB before leaving." else
+                "No unsaved workshop changes.")
+            .setItems(options) { _,chosen ->
+                when(chosen) {
+                    0 -> chooseCraftPart()
+                    1 -> chooseCraftAddPart()
+                    2 -> undoCraft()
+                    3 -> redoCraft()
+                    4 -> requestExport()
+                    else -> showCraftInstructions()
+                }
+            }
+            .setNegativeButton("CLOSE",null)
+            .show()
+    }
+
+    private fun showCraftInstructions() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Craft editing • 5 small steps")
+            .setMessage(
+                "1. OPEN GLB: load your hovercraft from Android Files.\n\n"+
+                "2. FIND PART: search the imported mesh names (canopy, wing, thruster, panel, etc.).\n\n"+
+                "3. CHOOSE ACTION: move in metres, turn in degrees, or resize along X/Y/Z. Values are RELATIVE to the part's current shape.\n\n"+
+                "4. PREVIEW: inspect the modification, then Apply or Revert. Undo and Redo keep previous GLB edits in memory.\n\n"+
+                "5. SAVE GLB: export the entire edited craft, with existing original materials and meshes retained. The saved GLB can be opened again for component editing.\n\n"+
+                "ADD PART: insert a simple new armor panel, pod, intake, fin or fairing blank and then adjust its location and size.\n\n"+
+                "CURRENT LIMIT: This moves/resizes separate mesh COMPONENTS. It does not yet sculpt individual imported vertices or apply CAD-style bevels to a body panel."
+            )
+            .setPositiveButton("SELECT PART") { _,_ -> chooseCraftPart() }
+            .setNeutralButton("ADD PART") { _,_ -> chooseCraftAddPart() }
+            .setNegativeButton("CLOSE",null).show()
+    }
+
+    private fun chooseCraftPart() {
+        val workshop=craftWorkshop ?: return
+        val all=workshop.parts()
+        if(all.isEmpty()) { toast("No separately editable craft parts found.");return }
+        val body=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(10),dp(6),dp(10),dp(6))
+        }
+        val search=EditText(this).apply {
+            hint="Search: canopy, wing, pod, body..."
+            setSingleLine(true)
+            textSize=16f
+            inputType=InputType.TYPE_CLASS_TEXT
+        }
+        body.addView(search,LinearLayout.LayoutParams(-1,dp(54)))
+        val list=ListView(this)
+        body.addView(list,LinearLayout.LayoutParams(-1,dp(360)))
+        var filtered=all
+        val labels=ArrayList<String>()
+        val adapter=ArrayAdapter(this,android.R.layout.simple_list_item_1,labels)
+        list.adapter=adapter
+        fun updateFilter(needle:String) {
+            val query=needle.trim()
+            filtered=if(query.isEmpty()) all else all.filter {
+                it.label.contains(query,true) ||
+                it.node.toString()==query ||
+                it.mesh.toString()==query
+            }
+            labels.clear()
+            labels.addAll(filtered.map { it.label+"  •  part "+(it.node+1) })
+            adapter.notifyDataSetChanged()
+        }
+        updateFilter("")
+        search.addTextChangedListener(object:TextWatcher {
+            override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int)=Unit
+            override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) {
+                updateFilter(s?.toString()?:"")
+            }
+            override fun afterTextChanged(s:Editable?)=Unit
+        })
+        val dialog=android.app.AlertDialog.Builder(this)
+            .setTitle("Step 1 • Choose a craft component")
+            .setView(body)
+            .setNegativeButton("CANCEL",null)
+            .create()
+        list.setOnItemClickListener { _,_,position,_ ->
+            val part=filtered.getOrNull(position) ?:return@setOnItemClickListener
+            dialog.dismiss()
+            chooseCraftOperation(part)
+        }
+        dialog.show()
+    }
+
+    private fun chooseCraftOperation(part:GlbWorkshop.Part) {
+        val options=arrayOf(
+            "MOVE • left/right, height, forward/back",
+            "ROTATE • pitch, yaw and roll (degrees)",
+            "RESIZE • width, height and length factors",
+            "SELECT DIFFERENT PART"
+        )
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Step 2 • "+part.label)
+            .setMessage("Choose what to change. Only this component will be modified, not the entire craft.")
+            .setItems(options) { _,index ->
+                if(index==3) chooseCraftPart()
+                else showPartAmounts(part,index)
+            }
+            .setNegativeButton("CANCEL",null).show()
+    }
+
+    private fun showPartAmounts(part:GlbWorkshop.Part,operation:Int) {
+        val instructions=when(operation) {
+            0->"Enter a position change in metres. X=sideways, Y=up/down, Z=forward/back. Negative values move in the opposite direction."
+            1->"Enter rotation angles in degrees. X=pitch, Y=yaw, Z=roll. The component turns about its mesh center."
+            else->"Enter multipliers for each axis: 1.0 keeps its size, 1.2 makes it 20% larger, 0.8 makes it smaller."
+        }
+        val label=when(operation){0->"MOVE";1->"ROTATE";else->"RESIZE"}
+        val descriptions=when(operation){
+            0->listOf("X sideways (m)","Y vertical (m)","Z forward/back (m)")
+            1->listOf("X pitch (°)","Y yaw (°)","Z roll (°)")
+            else->listOf("X width ×","Y height ×","Z length ×")
+        }
+        val form=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(16),dp(8),dp(16),dp(5))
+        }
+        form.addView(textLabel(instructions,13f,muted))
+        val fields=descriptions.map { description ->
+            form.addView(textLabel(description,14f,text))
+            EditText(this).apply {
+                setSingleLine(true)
+                textSize=17f
+                setText(if(operation==2) "1.00" else "0.00")
+                selectAll()
+                inputType=InputType.TYPE_CLASS_NUMBER or
+                    InputType.TYPE_NUMBER_FLAG_SIGNED or
+                    InputType.TYPE_NUMBER_FLAG_DECIMAL
+                form.addView(this,LinearLayout.LayoutParams(-1,dp(50)))
+            }
+        }
+        val dialog=android.app.AlertDialog.Builder(this)
+            .setTitle("Step 3 • "+label+" "+part.label)
+            .setView(form)
+            .setPositiveButton("PREVIEW",null)
+            .setNeutralButton("BACK",null)
+            .setNegativeButton("CANCEL",null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                dialog.dismiss()
+                chooseCraftOperation(part)
+            }
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val values=fields.map {it.text.toString().trim().toFloatOrNull()}
+                if(values.any {it==null||!it.isFinite()}) {
+                    toast("Enter three valid numbers before previewing.")
+                    return@setOnClickListener
+                }
+                val x=values[0]!!;val y=values[1]!!;val z=values[2]!!
+                val delta=when(operation) {
+                    0->GlbWorkshop.Delta(moveX=x,moveY=y,moveZ=z)
+                    1->GlbWorkshop.Delta(turnX=x,turnY=y,turnZ=z)
+                    else->GlbWorkshop.Delta(scaleX=x,scaleY=y,scaleZ=z)
+                }
+                val workshop=craftWorkshop ?:return@setOnClickListener
+                val old=workshop.export()
+                try {
+                    val proposed=workshop.previewPart(part.node,delta)
+                    if(!present(proposed,currentName,true)) {
+                        present(old,currentName,true)
+                        return@setOnClickListener
+                    }
+                    dialog.dismiss()
+                    confirmPartPreview(part,delta,operation,old)
+                } catch(error:Exception) {
+                    present(old,currentName,true)
+                    toast("Cannot preview: "+(error.message?:"invalid component transform"))
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun confirmPartPreview(
+        part:GlbWorkshop.Part,delta:GlbWorkshop.Delta,operation:Int,old:ByteArray
+    ) {
+        val workshop=craftWorkshop ?:return
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Step 4 • Keep this modification?")
+            .setMessage(part.label+" • "+when(operation) {
+                0->"Position adjustment";1->"Rotation adjustment";else->"Size adjustment"
+            }+"\n\nThis preview changes only one mesh component. Apply commits a reversible edit. Adjust lets you try new values; Cancel returns to the original.")
+            .setPositiveButton("APPLY") { _,_ ->
+                try {
+                    val updated=workshop.applyPart(part.node,delta)
+                    if(!present(updated,currentName,true)) {
+                        workshop.undo()
+                        present(old,currentName,true)
+                    } else {
+                        craftDirty=true
+                        syncShapeUi()
+                        status.text=part.label+" updated • UNSAVED • Save GLB when finished"
+                        toast("Component updated. Undo and Redo are available.")
+                    }
+                } catch(error:Exception) {
+                    present(old,currentName,true)
+                    toast("Edit failed: "+(error.message?:"invalid geometry"))
+                }
+            }
+            .setNeutralButton("ADJUST") { _,_ ->
+                present(old,currentName,true)
+                showPartAmounts(part,operation)
+            }
+            .setNegativeButton("REVERT") { _,_ ->
+                present(old,currentName,true)
+            }
+            .setOnCancelListener {present(old,currentName,true)}
+            .show()
+    }
+
+    private fun chooseCraftAddPart() {
+        val workshop=craftWorkshop ?:run {showCraftWorkshop();return}
+        val entries=GlbWorkshop.starters.map {
+            it.name+" • "+String.format(java.util.Locale.US,"%.2f × %.2f × %.2f m",
+                it.width,it.height,it.length)
+        }.toTypedArray()
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Step 1 • Add a new craft part")
+            .setMessage("Choose a simple base component. It becomes an independent editable mesh in the GLB and can be resized, repositioned or rotated afterward.")
+            .setItems(entries) { _,index ->
+                val preset=GlbWorkshop.starters[index]
+                try {
+                    val geometry=NativeGeometry.generateProfiledBox(
+                        preset.width,preset.height,preset.length,
+                        preset.topWidth,preset.topLength,0f)
+                    val old=workshop.export()
+                    val preview=workshop.previewNewPart(
+                        preset.name,geometry,preset.color)
+                    if(!present(preview,currentName,true)) {
+                        present(old,currentName,true)
+                        return@setItems
+                    }
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle("Step 2 • Add "+preset.name+"?")
+                        .setMessage("The new part is previewed on the craft near its model origin. Keep it, then select the new part to move it into the proper location. You can Undo afterward.")
+                        .setPositiveButton("ADD & POSITION") { _,_ ->
+                            try {
+                                val output=workshop.addPart(preset.name,geometry,preset.color)
+                                if(!present(output,currentName,true)) {
+                                    workshop.undo()
+                                    present(old,currentName,true)
+                                } else {
+                                    craftDirty=true
+                                    syncShapeUi()
+                                    status.text=preset.name+" added • UNSAVED • position the new part"
+                                    val inserted=workshop.parts().lastOrNull()
+                                    if(inserted!=null) chooseCraftOperation(inserted)
+                                }
+                            } catch(error:Exception) {
+                                present(old,currentName,true)
+                                toast("Part not added: "+(error.message?:"invalid mesh"))
+                            }
+                        }
+                        .setNegativeButton("CANCEL") { _,_ ->
+                            present(old,currentName,true)
+                        }
+                        .setOnCancelListener {present(old,currentName,true)}
+                        .show()
+                } catch(error:Exception) {
+                    toast("Cannot add part: "+(error.message?:"invalid preset"))
+                }
+            }
+            .setNegativeButton("CANCEL",null).show()
+    }
+
+    private fun undoCraft() {
+        val workshop=craftWorkshop ?:return
+        val old=workshop.export()
+        val output=workshop.undo()?:run {toast("No earlier craft edit to undo.");return}
+        if(!present(output,currentName,true)) {
+            workshop.redo()
+            present(old,currentName,true)
+            toast("Undo failed; original craft restored.")
+        } else {
+            craftDirty=true
+            syncShapeUi()
+            status.text="Craft edit undone • Save GLB when you are finished"
+        }
+    }
+
+    private fun redoCraft() {
+        val workshop=craftWorkshop ?:return
+        val old=workshop.export()
+        val output=workshop.redo()?:run {toast("No further craft edit to redo.");return}
+        if(!present(output,currentName,true)) {
+            workshop.undo()
+            present(old,currentName,true)
+            toast("Redo failed; original craft restored.")
+        } else {
+            craftDirty=true
+            syncShapeUi()
+            status.text="Craft edit restored • Save GLB when you are finished"
+        }
+    }
+
     private fun showHelp() {
         android.app.AlertDialog.Builder(this)
             .setTitle("Model Forge Native — Foundation")
