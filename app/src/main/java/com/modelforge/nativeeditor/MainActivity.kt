@@ -165,6 +165,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
     private val studioLights = mutableListOf<Int>()
     private val openCode = 401
     private val exportCode = 402
+    private val openProjectCode = 403
+    private val exportProjectCode = 404
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -294,6 +296,9 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         top.addView(button("＋ NEW BOX") { createBox() })
         top.addView(button("OPEN GLB") { requestOpen() })
         top.addView(button("SAVE GLB") { requestExport() })
+        top.addView(button("STUDIO ✦") { launchStudioGuide() })
+        top.addView(button("OPEN PROJECT") { requestOpenProject() })
+        top.addView(button("SAVE PROJECT") { requestExportProject() })
         top.addView(button("?" ) { showHelp() })
 
         val canvas = FrameLayout(this).apply { setBackgroundColor(Color.rgb(19, 29, 43)) }
@@ -388,9 +393,7 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
                 cameraManipulator.jumpToBookmark(cameraManipulator.homeBookmark)
         })
         actionsRow.addView(button("⟳ TURN VIEW") { rotateCameraForCheck() })
-        actionsRow.addView(button("ADVANCED • SOON") {
-            toast("Face area selection works on generated boxes. Edge/vertex editing is coming later.")
-        })
+        actionsRow.addView(button("✦ STUDIO GUIDE") { launchStudioGuide() })
         drawer.addView(textLabel("FACE TOOLS • DRAW ON THE MODEL", 13f, accent))
         drawer.addView(button("✎ START DRAWING ON FACE") { if(!drawAreaMode) toggleDrawArea()
             else toast("Already drawing. Drag across a visible box face.") })
@@ -431,6 +434,8 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         stepRow.addView(button("− 0.10 m") { nudgeFace(-0.10f) })
         stepRow.addView(button("+ 0.10 m") { nudgeFace(0.10f) })
         drawer.addView(button("REMOVE SELECTED FACE EDIT") { removeFaceEdit() })
+        drawer.addView(textLabel("SYMMETRY • REPEAT AN EDIT ON THE OPPOSITE SIDE",13f,accent))
+        drawer.addView(button("⧉ MIRROR SELECTED DETAIL") { launchMirrorWizard() })
         drawer.addView(textLabel("Each face keeps its own shape, size, and depth. Other faces stay intact.", 11f, muted))
         drawer.addView(textLabel("Offline-first • GLB export • Community sharing planned, not active", 11f, muted))
         syncShapeUi()
@@ -953,6 +958,74 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         Choreographer.getInstance().postFrameCallback(this)
     }
 
+    private fun requestOpenProject() {
+        val intent=Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+        startActivityForResult(intent,openProjectCode)
+    }
+
+    private fun requestExportProject() {
+        if(currentShape==null) {
+            toast("Open or create an editable box before saving a project.")
+            return
+        }
+        val intent=Intent(Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/octet-stream")
+        intent.putExtra(Intent.EXTRA_TITLE,"ModelForge-Editable.mforge")
+        startActivityForResult(intent,exportProjectCode)
+    }
+
+    private fun readEditableProject(uri:android.net.Uri) {
+        val raw=contentResolver.openInputStream(uri)?.use { input ->
+            val stream=java.io.ByteArrayOutputStream()
+            val buffer=ByteArray(16*1024)
+            while(true) {
+                val count=input.read(buffer)
+                if(count<0) break
+                require(stream.size()+count<=1024*1024) {
+                    "Editable projects must be smaller than 1 MB"
+                }
+                stream.write(buffer,0,count)
+            }
+            String(stream.toByteArray(),StandardCharsets.UTF_8)
+        } ?: throw IllegalArgumentException("Project document could not be read")
+        require(raw.startsWith("MFORGE_DOC ")) {
+            "Not a Model Forge editable project; use OPEN GLB for meshes"
+        }
+        val oldShape=currentShape
+        val oldGlb=currentGlb
+        val oldName=currentName
+        val oldImported=importedPreview
+        val oldNative=if(oldShape!=null) NativeProject.snapshot() else null
+        var loaded=false
+        try {
+            // Native parse validates a candidate before replacing its document.
+            NativeProject.load(raw)
+            loaded=true
+            val shape=fromNative() ?: throw IllegalArgumentException("No editable shape in project")
+            if(!renderShape(shape)) throw IllegalArgumentException("Project preview could not render")
+            faceMode=false;drawAreaMode=false;directShapeMode=false;selectedFace=null
+            resetRegionDrag()
+            saveWorkingShape()
+            syncShapeUi()
+            status.text="Editable project restored • continue modeling"
+            toast("Editable project opened. All face curves and dimensions restored.")
+        } catch(error:Exception) {
+            if(loaded) {
+                try {
+                    if(oldNative!=null) NativeProject.load(oldNative) else NativeProject.clear()
+                    if(oldShape!=null) renderShape(oldShape)
+                    else if(oldGlb!=null) present(oldGlb,oldName,oldImported)
+                } catch(rollback:Exception) {
+                    Log.e("ModelForgeProject","Could not restore prior preview",rollback)
+                }
+            }
+            throw error
+        }
+    }
+
     private fun requestOpen() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
@@ -975,7 +1048,16 @@ class MainActivity : Activity(), Choreographer.FrameCallback {
         if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
-            if (requestCode == openCode) {
+            if(requestCode==openProjectCode) {
+                readEditableProject(uri)
+            } else if(requestCode==exportProjectCode) {
+                require(currentShape!=null) { "Only generated boxes have editable projects" }
+                val snapshot=NativeProject.snapshot().toByteArray(StandardCharsets.UTF_8)
+                require(snapshot.size<=1024*1024) { "Project exceeded size limit" }
+                contentResolver.openOutputStream(uri,"w")?.use { it.write(snapshot) }
+                    ?: throw IllegalArgumentException("Could not write editable project")
+                toast("Editable .mforge project saved with dimensions and all face details.")
+            } else if (requestCode == openCode) {
                 val bytes = contentResolver.openInputStream(uri)?.use { input ->
                     // Limit imported models to protect memory on budget Android phones.
                     val stream = java.io.ByteArrayOutputStream()
