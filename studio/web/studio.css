@@ -7,3 +7,33 @@
 .camera-presets{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 13px;border-top:1px solid #26384d}
 .camera-presets button{min-height:33px;font-size:11px;padding:7px 13px;flex:1}
 @media(max-width:710px){.coop{padding:14px 5px}.viewer{min-height:480px}.camera-presets button{padding:6px}}
+
+/* Independent GLB editing workplace; native shape controls stay intact. */
+[hidden]{display:none!important}
+header nav{display:flex;flex-wrap:wrap;gap:6px}
+header nav .active-workspace{border-color:#49d1c5;background:#164c52;color:#d6fff9}
+#glb-left-panel select,#glb-right-panel select{width:100%;min-width:0}
+#glb-left-panel .wide,#glb-right-panel .wide{white-space:normal;min-height:43px}
+#glb-left-panel .session-summary,#glb-right-panel .session-summary{
+  background:#15273a;border:1px solid #2a465e;border-radius:8px;padding:10px;
+  overflow-wrap:anywhere;margin:10px 0
+}
+#glb-right-panel .tool-switch{margin:14px 0;display:flex;flex-wrap:wrap}
+#glb-right-panel .tool-switch button{flex:1;min-height:42px}
+#glb-right-panel .tool-switch button.active-tool{background:#195d61;border-color:#4de5d7}
+#glb-right-panel .grid{margin-bottom:12px}
+.glb-preview-actions{border:1px solid #408a81;border-radius:9px;padding:12px;margin:18px 0;background:#132d34}
+.glb-preview-actions .inline{display:flex;gap:8px}
+.glb-preview-actions button{flex:1}
+#glb-pick-point.active-tool{background:#195d61;border-color:#4de5d7;box-shadow:0 0 0 1px #4de5d766}
+#glb-part{max-width:100%}
+#glb-brush-tools p,#glb-transform-tools p{font-size:13px;line-height:1.5}
+@media(max-width:710px){
+  #glb-left-panel,#glb-right-panel{padding:15px 14px}
+  #glb-left-panel{order:1}
+  #glb-right-panel{order:2}
+  header nav .shape-nav{display:none}
+  header nav{gap:5px}
+  header nav>*{min-width:calc(50% - 6px);flex:1}
+  #glb-brush-tools .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
