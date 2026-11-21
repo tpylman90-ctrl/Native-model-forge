@@ -37,3 +37,20 @@ header nav .active-workspace{border-color:#49d1c5;background:#164c52;color:#d6ff
   header nav>*{min-width:calc(50% - 6px);flex:1}
   #glb-brush-tools .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+.forge-library-dialog{
+  color:#e4eff9;background:#111f31;border:1px solid #467a90;border-radius:13px;
+  padding:18px;max-width:min(92vw,540px);width:100%;max-height:88vh;overflow-y:auto;
+  box-shadow:0 24px 70px #000b
+}
+.forge-library-dialog::backdrop{background:#030812ce}
+.library-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.library-top h2{margin:0;font-size:17px}
+.library-top button{padding:6px 11px}
+.forge-library-dialog p{font-size:13px;line-height:1.5}
+.forge-library-dialog select{width:100%;min-height:240px;background:#152d40}
+.forge-library-dialog select option{padding:7px 5px}
+.forge-library-dialog #glb-library-info{background:#1b3546;border:1px solid #355467;border-radius:8px;padding:10px}
+.library-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.library-actions button{flex:1;min-height:48px;white-space:normal}
+@media(max-width:710px){.forge-library-dialog{padding:14px}.library-actions{flex-direction:column}}
