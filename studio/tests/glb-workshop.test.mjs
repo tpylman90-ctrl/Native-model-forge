@@ -135,3 +135,24 @@ test("invalid file headers and byte limits reject safely",()=>{
   const altered=fixture();new DataView(altered.buffer).setUint32(8,999,true);
   assert.throws(()=>new GlbWorkshop(altered),/complete/);
 });
+
+test("CC0-style library part can be previewed, inserted and undone without changing original car",()=>{
+  const imported=fixture(),library=fixture({shared:false});
+  const editor=new GlbWorkshop(imported);
+  const preview=editor.previewLibraryPart(library,"Spare armor plate");
+  assert.deepEqual(editor.getBytes(),new GlbWorkshop(imported).getBytes());
+  assert.equal(preview.node,2);
+  const output=editor.addLibraryPart(library,"Spare armor plate");
+  assert.equal(output.node,2);
+  assert.deepEqual(output.bytes,preview.bytes);
+  assert.equal(editor.parts().length,3);
+  const doc=unpack(output.bytes).root;
+  assert.equal(doc.nodes[2].name,"Spare armor plate");
+  assert.equal(doc.meshes.length,2);
+  assert.equal(doc.materials.length,2);
+  assert.equal(doc.materials[0].name,"Original premium paint");
+  assert.equal(vertex(output.bytes,2,1)[0],1);
+  assert.deepEqual(sourcePrefix(output.bytes).slice(0,sourcePrefix(imported).length),sourcePrefix(imported));
+  assert.deepEqual(editor.undo(),new GlbWorkshop(imported).getBytes());
+  assert.deepEqual(editor.redo(),output.bytes);
+});
