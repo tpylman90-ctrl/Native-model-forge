@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { GlbWorkshop } from "./glb_workshop.mjs";
+import {openForgePack} from "./forge_pack.mjs";
 
 /**
  * Browser imported-GLB editor, with native Android workshop feature parity:
@@ -18,7 +19,7 @@ export function initImportedWorkbench({scene,camera,orbit,renderer,el,notify,dow
   let workshop=null,original=null,name="Imported-Car",root=null,parsed=null,selectedNode=null;
   let selectedMesh=null,highlight=null,brushMarker=null,staged=null;
   let tool="transform",pickPoint=false,active=false,dirty=false,wire=false,renderId=0;
-  let lastSurface=null;
+  let lastSurface=null,partLibrary=null;
   const detail=(s,error=false)=>{el("glb-action-status").textContent=s;notify(s,error);};
   const read=id=>{
     const value=el(id).value;
@@ -297,12 +298,20 @@ export function initImportedWorkbench({scene,camera,orbit,renderer,el,notify,dow
   async function commit(){
     if(!staged)throw Error("Preview your change first");
     const task=staged;
-    const bytes=task.kind==="brush"?workshop.applyBrush(task.node,task.args):
-      workshop.applyTransform(task.node,task.args);
+    let bytes;
+    if(task.kind==="library"){
+      const added=workshop.addLibraryPart(task.asset,task.title);
+      bytes=added.bytes;selectedNode=added.node;
+    }else{
+      bytes=task.kind==="brush"?workshop.applyBrush(task.node,task.args):
+        workshop.applyTransform(task.node,task.args);
+    }
     dirty=true;resetPreview();
     await display(bytes);
     refreshPartList();
-    detail("Applied real GLB "+(task.kind==="brush"?"vertex deformation":"component transform")+". Undo or save the full car.");
+    detail(task.kind==="library"
+      ?"CC0 geometry added as a new independent part. Move it into position, or Undo."
+      :"Applied real GLB "+(task.kind==="brush"?"vertex deformation":"component transform")+". Undo or save the full car.");
   }
   async function discard(){
     if(!workshop)return;
@@ -337,6 +346,76 @@ export function initImportedWorkbench({scene,camera,orbit,renderer,el,notify,dow
       throw err;
     }
   }
+
+  // Native app's ZIP-backed Forge Basics archive, loaded only on demand.
+  // Decompresses manifest.json and a selected GLB, not the whole 18-item pack.
+  async function getLibrary(){
+    if(partLibrary)return partLibrary;
+    const res=await fetch("./packs/forge-basics.mfpack");
+    if(!res.ok)throw Error("Could not fetch Forge Basics: HTTP "+res.status);
+    partLibrary=await openForgePack(await res.arrayBuffer());
+    return partLibrary;
+  }
+  function librarySelection(){
+    if(!partLibrary)throw Error("Open the library catalog first");
+    const id=el("glb-library-items").value;
+    const record=partLibrary.manifest.assets.find(x=>x.id===id);
+    if(!record)throw Error("Choose one part to continue");
+    return record;
+  }
+  function updateLibraryInfo(){
+    if(!partLibrary)return;
+    const record=librarySelection();
+    el("glb-library-info").textContent=record.title+" · "+record.category+
+      " · "+(record.bytes/1024).toFixed(1)+" KiB uncompressed · "+record.license;
+  }
+  el("glb-library-open").addEventListener("click",async()=>{
+    try{
+      el("glb-library-dialog").showModal();
+      el("glb-library-info").textContent="Reading the native compressed CC0 library…";
+      const pack=await getLibrary(),sel=el("glb-library-items");
+      sel.replaceChildren();
+      for(const record of pack.manifest.assets){
+        const option=document.createElement("option");
+        option.value=record.id;option.textContent=record.category+" · "+record.title;
+        sel.appendChild(option);
+      }
+      sel.selectedIndex=0;updateLibraryInfo();
+    }catch(e){detail("Cannot open part pack: "+(e.message||e),true);el("glb-library-info").textContent=e.message||String(e);}
+  });
+  el("glb-library-items").addEventListener("change",()=>{
+    try{updateLibraryInfo();}catch(e){detail(e.message||String(e),true);}
+  });
+  el("glb-library-close").addEventListener("click",()=>el("glb-library-dialog").close());
+  el("glb-library-alone").addEventListener("click",async()=>{
+    try{
+      const entry=librarySelection(),part=await partLibrary.getAsset(entry);
+      const f=new File([part],entry.id+".glb",{type:"model/gltf-binary"});
+      el("glb-library-dialog").close();
+      await openFile(f);
+      detail("Opened CC0 "+entry.title+" as an independently editable GLB.");
+    }catch(e){detail("Part open failed: "+(e.message||e),true);}
+  });
+  el("glb-library-add").addEventListener("click",async()=>{
+    try{
+      const entry=librarySelection(),part=await partLibrary.getAsset(entry);
+      el("glb-library-dialog").close();
+      if(!workshop){
+        const f=new File([part],entry.id+".glb",{type:"model/gltf-binary"});
+        await openFile(f);
+        detail("No car was loaded; opened "+entry.title+" as a starter assembly.");
+        return;
+      }
+      if(staged)await discard();
+      const pending=workshop.previewLibraryPart(part,entry.title);
+      await display(pending.bytes);
+      staged={kind:"library",asset:part,title:entry.title,node:pending.node};
+      el("glb-preview-actions").hidden=false;
+      enter();
+      detail("Preview "+entry.title+" added near the model origin. Inspect, then Apply or Cancel.");
+    }catch(e){detail("Part insert failed: "+(e.message||e),true);}
+  });
+
   el("glb-open").addEventListener("change",async event=>{
     const file=event.target.files?.[0];if(!file)return;
     try{await openFile(file);}catch(e){detail("Unable to open imported GLB: "+(e.message||e),true);}
