@@ -17,20 +17,26 @@ jobs:
           cmake -S studio -B build/studio -DCMAKE_BUILD_TYPE=Debug
           cmake --build build/studio --parallel 2
           ctest --test-dir build/studio --output-on-failure
-      - name: Check browser JavaScript syntax
+      - name: Generate compact original CC0 GLB pack for browser tests
+        run: python3 tools/generate_forge_basics.py --output studio/web/packs/forge-basics.mfpack
+      - name: Check browser JavaScript and imported GLB/library tests
         run: |
           node --check studio/web/studio.js
           node --check studio/web/studio_glb.js
           node --check studio/web/glb_workshop.mjs
-          node --test studio/tests/share_session.test.mjs studio/tests/glb-workshop.test.mjs
+          node --check studio/web/forge_pack.mjs
+          node --test studio/tests/share_session.test.mjs studio/tests/glb-workshop.test.mjs studio/tests/forge-pack.test.mjs
   studio-browser:
     needs: studio-native
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: emscripten-core/setup-emsdk@v15
-      - name: Build WebAssembly from the native engine
-        run: bash studio/build_web.sh
+      - name: Build WebAssembly and compressed CC0 asset library
+        run: |
+          bash studio/build_web.sh
+          python3 tools/generate_forge_basics.py --output studio/web/packs/forge-basics.mfpack
+          test -s studio/web/packs/forge-basics.mfpack
       - name: Check browser engine assets
         run: |
           test -s studio/web/index.html
