@@ -306,6 +306,95 @@ function editedTransform(json,bin,used,node,edit) {
   delete n.translation;delete n.rotation;delete n.scale;n.matrix=transformed;
   return {json:next,bin,used};
 }
+
+function insertedLibraryPart(destination,libraryBytes,name) {
+  const label=String(name||"Library part").trim();
+  if(!label||label.length>80)throw Error("Library part name must be 1 to 80 characters");
+  const source=parseGLB(libraryBytes),parts=partList(source.json);
+  if(parts.length!==1)throw Error("Library asset must contain exactly one mesh part");
+  const {prim,positions,indices,min,max}=readSurface(
+    source.json,source.bin,source.used,parts[0].node,0
+  );
+  if(source.json.meshes[parts[0].mesh].primitives.length!==1)
+    throw Error("Complex multi-surface library assets require a Blender import");
+  if(indices.length>100000)throw Error("Library part exceeds 100,000 triangles indices");
+  const originalMaterial=source.json.materials?.[prim.material]||{};
+  if(originalMaterial.extensions || originalMaterial.normalTexture ||
+     originalMaterial.occlusionTexture || originalMaterial.emissiveTexture ||
+     originalMaterial.pbrMetallicRoughness?.baseColorTexture ||
+     originalMaterial.pbrMetallicRoughness?.metallicRoughnessTexture)
+    throw Error("Textured library asset requires full glTF resource transfer; not applied");
+  const color=originalMaterial.pbrMetallicRoughness?.baseColorFactor||[.4,.6,.7,1];
+  validateArray(color,4,"Library part color");
+  const geometry=new Float32Array(indices.length*3);
+  const normals=new Float32Array(indices.length*3);
+  // Expand indexed source to independent triangle vertices; retain exact shape.
+  // The CC0 Forge Basics pack stores ordinary interleaved vertex/normals.
+  let sourceNormals=null;
+  if(Number.isInteger(prim.attributes?.NORMAL)){
+    const av=attrView(source.json,prim.attributes.NORMAL,source.used,3);
+    if(av.count!==positions.length/3)throw Error("Invalid library normal count");
+    const rd=new DataView(source.bin.buffer,source.bin.byteOffset,source.bin.byteLength);
+    sourceNormals=new Float32Array(positions.length);
+    for(let i=0;i<av.count;i++)for(let k=0;k<3;k++){
+      const value=rd.getFloat32(av.offset+i*av.stride+k*4,true);
+      if(!Number.isFinite(value))throw Error("Non-finite library vertex normal");
+      sourceNormals[i*3+k]=value;
+    }
+  }
+  for(let i=0;i<indices.length;i+=3) {
+    const a=indices[i],b=indices[i+1],c=indices[i+2];
+    const ai=a*3,bi=b*3,ci=c*3;
+    const ab=[0,1,2].map(k=>positions[bi+k]-positions[ai+k]);
+    const ac=[0,1,2].map(k=>positions[ci+k]-positions[ai+k]);
+    const cross=[ab[1]*ac[2]-ab[2]*ac[1],ab[2]*ac[0]-ab[0]*ac[2],ab[0]*ac[1]-ab[1]*ac[0]];
+    const length=Math.hypot(...cross);
+    const fallback=length>1e-8?cross.map(x=>x/length):[0,1,0];
+    for(let vertex=0;vertex<3;vertex++) {
+      const from=indices[i+vertex]*3,at=(i+vertex)*3;
+      for(let k=0;k<3;k++) {
+        geometry[at+k]=positions[from+k];
+        normals[at+k]=sourceNormals?sourceNormals[from+k]:fallback[k];
+      }
+    }
+  }
+  const root=clone(destination.json),padded=align4(destination.used);
+  const length=padded+geometry.byteLength+normals.byteLength;
+  if(length>MAX_FILE-100000)throw Error("Adding this part would exceed the 80 MB GLB limit");
+  const binary=new Uint8Array(length);
+  binary.set(destination.bin.subarray(0,destination.used));
+  const writer=new DataView(binary.buffer);
+  let offset=padded;
+  for(const arr of [geometry,normals])for(const x of arr){
+    writer.setFloat32(offset,x,true);offset+=4;
+  }
+  const posView=root.bufferViews.length;
+  root.bufferViews.push({buffer:0,byteOffset:padded,byteLength:geometry.byteLength,target:34962});
+  root.bufferViews.push({buffer:0,byteOffset:padded+geometry.byteLength,byteLength:normals.byteLength,target:34962});
+  const posAccessor=root.accessors.length;
+  root.accessors.push({bufferView:posView,componentType:5126,count:indices.length,type:"VEC3",min,max});
+  root.accessors.push({bufferView:posView+1,componentType:5126,count:indices.length,type:"VEC3"});
+  root.materials ||= [];
+  const matId=root.materials.length;
+  root.materials.push({
+    name:"Model Forge | "+label,doubleSided:originalMaterial.doubleSided??true,
+    pbrMetallicRoughness:{
+      baseColorFactor:color,
+      metallicFactor:originalMaterial.pbrMetallicRoughness?.metallicFactor??.38,
+      roughnessFactor:originalMaterial.pbrMetallicRoughness?.roughnessFactor??.45
+    }
+  });
+  const meshId=root.meshes.length;
+  root.meshes.push({name:label,primitives:[{attributes:{POSITION:posAccessor,NORMAL:posAccessor+1},
+    material:matId,mode:4}]});
+  const nodeId=root.nodes.length;
+  root.nodes.push({name:label,mesh:meshId});
+  const scene=root.scenes[root.scene??0];
+  scene.nodes ||= [];scene.nodes.push(nodeId);
+  root.buffers[0].byteLength=length;
+  return {json:root,bin:binary,used:length,node:nodeId};
+}
+
 export class GlbWorkshop {
   constructor(source) {
     const {json,bin,used}=parseGLB(source);
@@ -332,6 +421,15 @@ export class GlbWorkshop {
     return {bytes:encodeGLB(v.json,v.bin,v.used),affected:v.affected};}
   applyTransform(node,delta){return this.commit(editedTransform(this.json,this.bin,this.used,node,delta));}
   applyBrush(node,brush){return this.commit(editedGeometry(this.json,this.bin,this.used,node,brush));}
+  previewLibraryPart(sourceBytes,name){
+    const next=insertedLibraryPart(this,sourceBytes,name);
+    return {bytes:encodeGLB(next.json,next.bin,next.used),node:next.node};
+  }
+  addLibraryPart(sourceBytes,name){
+    const next=insertedLibraryPart(this,sourceBytes,name);
+    const bytes=this.commit(next);
+    return {bytes,node:next.node};
+  }
   commit(next){
     // Complete encoding before modifying in-memory state.
     const output=encodeGLB(next.json,next.bin,next.used);
