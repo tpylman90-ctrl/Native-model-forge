@@ -25,7 +25,8 @@ jobs:
           node --check studio/web/studio_glb.js
           node --check studio/web/glb_workshop.mjs
           node --check studio/web/forge_pack.mjs
-          node --test studio/tests/share_session.test.mjs studio/tests/glb-workshop.test.mjs studio/tests/forge-pack.test.mjs
+          node --check studio/web/glb_command.mjs
+          node --test studio/tests/share_session.test.mjs studio/tests/glb-workshop.test.mjs studio/tests/forge-pack.test.mjs studio/tests/glb-command.test.mjs
   studio-browser:
     needs: studio-native
     runs-on: ubuntu-latest
