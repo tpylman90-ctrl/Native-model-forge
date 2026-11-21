@@ -20,7 +20,9 @@ jobs:
       - name: Check browser JavaScript syntax
         run: |
           node --check studio/web/studio.js
-          node --test studio/tests/share_session.test.mjs
+          node --check studio/web/studio_glb.js
+          node --check studio/web/glb_workshop.mjs
+          node --test studio/tests/share_session.test.mjs studio/tests/glb-workshop.test.mjs
   studio-browser:
     needs: studio-native
     runs-on: ubuntu-latest
