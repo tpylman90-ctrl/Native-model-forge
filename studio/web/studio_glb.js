@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { GlbWorkshop } from "./glb_workshop.mjs";
 import {openForgePack} from "./forge_pack.mjs";
+import {templateGlbCommand,reviewGlbCommand} from "./glb_command.mjs";
 
 /**
  * Browser imported-GLB editor, with native Android workshop feature parity:
@@ -462,6 +463,36 @@ export function initImportedWorkbench({scene,camera,orbit,renderer,el,notify,dow
   el("glb-redo").addEventListener("click",async()=>{
     try{await changeHistory("redo");}catch(e){detail(e.message||String(e),true);}
   });
+  el("glb-screenshot").addEventListener("click",()=>el("screenshot").click());
+  el("glb-command-template").addEventListener("click",async()=>{
+    try{
+      if(!workshop||selectedNode===null)throw Error("Import a GLB and select a part first");
+      const op=tool==="brush"?"brush":"transform";
+      const primitive=op==="brush"?selectedSurface().primitive:0;
+      const json=JSON.stringify(templateGlbCommand(workshop,selectedNode,op,primitive),null,2);
+      el("glb-command-json").value=json;
+      if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(json);
+      detail("Reviewable GLB command template generated. Paste it in our chat for an edit proposal.");
+    }catch(e){detail(e.message||String(e),true);}
+  });
+  el("glb-command-review").addEventListener("click",async()=>{
+    try{
+      if(!workshop)throw Error("Import an editable GLB first");
+      const result=reviewGlbCommand(workshop,el("glb-command-json").value);
+      const item=workshop.parts().find(p=>p.node===result.node);
+      if(!confirm("Preview imported-mesh edit?\nPart: "+item.name+"\nNode: "+result.node+
+        "\nCurrent revision: "+workshop.revision+"\nOperation: "+result.kind+
+        "\n\nThe edit is NOT committed until you explicitly tap Apply."))return;
+      resetPreview();
+      selectedNode=result.node;
+      el("glb-part").value=String(selectedNode);
+      await display(result.bytes);
+      staged={kind:result.kind,node:result.node,args:result.args,affected:result.affected};
+      el("glb-preview-actions").hidden=false;
+      detail(result.description+". Rotate and inspect before Apply.");
+    }catch(e){detail("Command was rejected: "+(e.message||String(e)),true);}
+  });
+
   el("glb-save").addEventListener("click",()=>{
     try{
       if(!workshop)throw Error("No imported model loaded");
