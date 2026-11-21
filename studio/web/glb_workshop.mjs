@@ -147,8 +147,11 @@ function attrView(json,id,used,components) {
   const count=accessor.count;
   if(!Number.isInteger(count)||count<1||count>150000)throw Error("Surface vertex limit exceeded");
   const view=json.bufferViews[accessor.bufferView];
-  if(!view||view.buffer!==0 && view.buffer!==undefined||view.extensions)
+  if(!view || (view.buffer!==0 && view.buffer!==undefined) || view.extensions)
     throw Error("Compressed or external geometry buffers are unsupported");
+  if(!Number.isSafeInteger(view.byteLength) || view.byteLength<0 ||
+     !Number.isSafeInteger(view.byteOffset??0) || !Number.isSafeInteger(accessor.byteOffset??0))
+    throw Error("Invalid geometry buffer length or offset");
   const stride=view.byteStride??components*4;
   const offset=(view.byteOffset??0)+(accessor.byteOffset??0);
   const size=components*4;
@@ -278,7 +281,8 @@ function editedGeometry(json,bin,used,node,brush) {
 }
 function editedTransform(json,bin,used,node,edit) {
   const next=clone(json);
-  const {part}=getPrimitive(next,node,0);
+  const part=partList(next).find(p=>p.node===node);
+  if(!part)throw Error("Mesh node is not a safe editable component");
   const move=validateArray(edit.move,3,"Move"),angles=validateArray(edit.turn,3,"Rotation");
   const sizes=validateArray(edit.scale,3,"Scale");
   if(move.concat(angles).some(n=>Math.abs(n)>1000)||sizes.some(n=>n<.1||n>5))
