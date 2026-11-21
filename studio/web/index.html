@@ -8,7 +8,7 @@
 </head>
 <body>
 <header><div class="brand"><span>◈</span><div><strong>MODEL FORGE</strong><small>AI STUDIO · SHARED NATIVE ENGINE</small></div></div>
-<nav><button id="new">New body</button><label class="btn" for="open">Open .mforge</label><input id="open" type="file" accept=".mforge,text/plain" hidden><button id="save">Save .mforge</button><button id="export" class="primary">Export GLB</button></nav></header>
+<nav><button id="workspace-shape" class="active-workspace">Shape lab</button><button id="glb-library-open">▦ CC0 PARTS</button><label class="btn" for="glb-open">OPEN CAR GLB</label><input id="glb-open" type="file" accept=".glb,model/gltf-binary" hidden><button id="new">New body</button><label class="btn shape-nav" for="open">Open .mforge</label><input id="open" type="file" accept=".mforge,text/plain" hidden><button id="save" class="shape-nav">Save .mforge</button><button id="export" class="shape-nav primary">Export GLB</button></nav></header>
 <main>
 <section id="body-panel" class="panel">
   <small class="kicker">OBJECT</small><h2>Shape body</h2><p>Real editable geometry in the Model Forge native C++ engine.</p>
@@ -38,13 +38,30 @@
   </section>
 
 </section>
+<section id="glb-left-panel" class="panel" hidden>
+  <small class="kicker">IMPORTED MESH STUDIO · BETA</small>
+  <h2>Edit an actual car GLB</h2>
+  <p>Tap a separate vehicle component or choose it from the list. Its original materials and unrelated parts are preserved.</p>
+  <label>Selected vehicle component
+    <select id="glb-part"><option value="">Open a GLB to choose a part</option></select>
+  </label>
+  <div id="glb-part-stats" class="session-summary">No imported car loaded</div>
+  <div class="inline history"><button id="glb-undo">↶ Undo GLB</button><button id="glb-redo">↷ Redo GLB</button></div>
+  <button class="wide primary" id="glb-save">Save edited car GLB</button>
+  <button class="wide" id="glb-screenshot">Save car inspection screenshot</button>
+  <button class="wide" id="glb-reset">Revert to imported original</button>
+  <p class="tip">Changes are local until you save. Keep your original GLB as a backup. Downloaded models must have licenses permitting modification and your intended use.</p>
+  <h3>Editing workflow</h3>
+  <p>1. Tap a car part. 2. Choose transform or mesh brush. 3. Preview the change. 4. Apply or cancel. 5. Export the full GLB.</p>
+  <p class="tip">Animated, skinned, morph-target and compressed parts may require conversion in Blender first. Real mesh editing is limited to ordinary triangle surfaces.</p>
+</section>
 <section class="viewer">
   <div class="view-header"><b id="model-title">Studio Body</b><div><button id="fit">Fit</button><button id="wire">Wireframe off</button><span id="revision">Rev —</span></div></div>
   <div id="viewport" role="application" aria-label="3D editor. Drag to orbit, scroll to zoom, tap a face to select.">
-    <div id="loading">Initializing C++ geometry engine…</div><div class="help">DRAG ORBIT · SCROLL ZOOM · TAP SELECT FACE</div><div id="face-pill">Top face selected</div>
+    <div id="loading">Initializing C++ geometry engine…</div><div class="help">DRAG TO ORBIT · PINCH TO ZOOM · TAP TO SELECT</div><div id="face-pill">Top face selected</div>
   </div>
   <div class="camera-presets"><button type="button" data-angle="front">Front</button><button type="button" data-angle="side">Side</button><button type="button" data-angle="top">Top</button><button type="button" data-angle="three-quarter">3/4</button></div>
-  <div class="viewer-foot">Native document / live WebAssembly mesh <span id="mesh-stats"></span></div>
+  <div class="viewer-foot">Native .mforge and imported GLB editing <span id="mesh-stats"></span></div>
 </section>
 <section id="face-panel" class="panel">
   <small class="kicker">SURFACE</small><h2>Region editor</h2><p>Tap a surface, adjust its area, then apply its editable native feature.</p>
@@ -76,7 +93,81 @@
     <div class="inline"><button id="template-command">Insert template</button><button class="primary" id="apply-command">Review &amp; Apply</button></div>
   </details>
 </section>
+<section id="glb-right-panel" class="panel" hidden>
+  <small class="kicker">PRECISION EDITING</small><h2>Vehicle surface workshop</h2>
+  <div class="inline tool-switch">
+    <button id="glb-transform-mode">Move / Rotate / Scale</button>
+    <button id="glb-brush-mode">Reshape mesh</button>
+  </div>
+  <section id="glb-transform-tools">
+    <p>Adjust only the selected mesh node, without changing its underlying vertices.</p>
+    <label>Action
+      <select id="glb-transform-kind">
+        <option value="move">Move part (local metres)</option>
+        <option value="turn">Rotate part (degrees)</option>
+        <option value="scale">Resize part (multipliers)</option>
+      </select>
+    </label>
+    <div class="grid">
+      <label>X<input id="glb-transform-x" type="number" step=".05" value="0"></label>
+      <label>Y<input id="glb-transform-y" type="number" step=".05" value="0"></label>
+      <label>Z<input id="glb-transform-z" type="number" step=".05" value="0"></label>
+    </div>
+    <button class="wide" id="glb-preview-transform">Preview transform</button>
+  </section>
+  <section id="glb-brush-tools" hidden>
+    <p>Move actual imported vertices within a smooth falloff. Tap <b>Pick point</b>, then tap a surface to place the brush directly on the car.</p>
+    <label>Triangle surface
+      <select id="glb-surface"><option value="0">Choose a part first</option></select>
+    </label>
+    <div class="inline">
+      <button id="glb-pick-point" class="primary">Pick point on mesh</button>
+      <button id="glb-center-default">Center of surface</button>
+    </div>
+    <div class="grid">
+      <label>Center X<input id="glb-center-x" type="number" step=".01" value="0"></label>
+      <label>Center Y<input id="glb-center-y" type="number" step=".01" value="0"></label>
+      <label>Center Z<input id="glb-center-z" type="number" step=".01" value="0"></label>
+      <label>Brush radius<input id="glb-radius" type="number" min=".001" step=".05" value=".5"></label>
+    </div>
+    <h3>Surface displacement</h3>
+    <div class="grid">
+      <label>Move X<input id="glb-delta-x" type="number" step=".02" value="0"></label>
+      <label>Move Y<input id="glb-delta-y" type="number" step=".02" value=".1"></label>
+      <label>Move Z<input id="glb-delta-z" type="number" step=".02" value="0"></label>
+    </div>
+    <button class="wide" id="glb-preview-brush">Preview local deformation</button>
+    <p class="tip">The guide circle is a visual radius indicator, not a topological edge selection. Mesh edits are baked into saved GLB positions and normals.</p>
+  </section>
+  <div id="glb-preview-actions" class="glb-preview-actions" hidden>
+    <p>Preview only. Rotate the car to inspect the result before keeping it.</p>
+    <div class="inline"><button id="glb-apply" class="primary">Apply change</button><button id="glb-discard">Cancel preview</button></div>
+  </div>
+  <details class="glb-ai-console">
+    <summary>Co-op GLB edit commands <small>JSON review + manual approval</small></summary>
+    <p>Paste a proposed edit from our ChatGPT conversation. Check its selected node, revision and parameters before previewing. The assistant cannot remotely control your device.</p>
+    <textarea id="glb-command-json" rows="10" spellcheck="false" placeholder="Paste an assistant GLB command here"></textarea>
+    <div class="inline">
+      <button id="glb-command-template">Copy current command template</button>
+      <button id="glb-command-review" class="primary">Review &amp; preview command</button>
+    </div>
+  </details>
+  <div class="session-summary" id="glb-action-status">Import an editable GLB to begin.</div>
+</section>
 </main>
+<dialog id="glb-library-dialog" class="forge-library-dialog">
+  <div class="library-top"><h2>Forge Basics · 18 CC0 parts</h2><button id="glb-library-close" aria-label="Close library">✕</button></div>
+  <p>Original free-to-use Model Forge parts. The pack stays compressed until you choose an item.</p>
+  <label>Browse parts
+    <select id="glb-library-items" size="12" aria-label="Select model library part"></select>
+  </label>
+  <p id="glb-library-info">Loading the compressed parts catalog…</p>
+  <div class="library-actions">
+    <button id="glb-library-alone">Open as a standalone GLB</button>
+    <button id="glb-library-add" class="primary">Preview add to current car</button>
+  </div>
+  <p class="tip">New parts start near the model origin. Select the inserted part afterward to reposition or resize it.</p>
+</dialog>
 <footer><output id="status" role="status" aria-live="polite">Loading engine…</output><span>CO-OP ALPHA · ONLY SHARE LINKS WITH PEOPLE YOU TRUST</span></footer>
 <script type="module" src="./studio.js"></script>
 </body></html>
