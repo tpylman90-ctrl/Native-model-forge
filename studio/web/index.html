@@ -48,6 +48,7 @@
   <div id="glb-part-stats" class="session-summary">No imported car loaded</div>
   <div class="inline history"><button id="glb-undo">↶ Undo GLB</button><button id="glb-redo">↷ Redo GLB</button></div>
   <button class="wide primary" id="glb-save">Save edited car GLB</button>
+  <button class="wide" id="glb-screenshot">Save car inspection screenshot</button>
   <button class="wide" id="glb-reset">Revert to imported original</button>
   <p class="tip">Changes are local until you save. Keep your original GLB as a backup. Downloaded models must have licenses permitting modification and your intended use.</p>
   <h3>Editing workflow</h3>
@@ -142,6 +143,15 @@
     <p>Preview only. Rotate the car to inspect the result before keeping it.</p>
     <div class="inline"><button id="glb-apply" class="primary">Apply change</button><button id="glb-discard">Cancel preview</button></div>
   </div>
+  <details class="glb-ai-console">
+    <summary>Co-op GLB edit commands <small>JSON review + manual approval</small></summary>
+    <p>Paste a proposed edit from our ChatGPT conversation. Check its selected node, revision and parameters before previewing. The assistant cannot remotely control your device.</p>
+    <textarea id="glb-command-json" rows="10" spellcheck="false" placeholder="Paste an assistant GLB command here"></textarea>
+    <div class="inline">
+      <button id="glb-command-template">Copy current command template</button>
+      <button id="glb-command-review" class="primary">Review &amp; preview command</button>
+    </div>
+  </details>
   <div class="session-summary" id="glb-action-status">Import an editable GLB to begin.</div>
 </section>
 </main>
