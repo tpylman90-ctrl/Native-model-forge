@@ -24,9 +24,14 @@ jobs:
       - uses: emscripten-core/setup-emsdk@v15
       - name: Test and compile the shared browser engine
         run: |
-          node --test studio/tests/share_session.test.mjs
+          python3 tools/generate_forge_basics.py --output studio/web/packs/forge-basics.mfpack
+          node --test studio/tests/share_session.test.mjs studio/tests/glb-workshop.test.mjs studio/tests/forge-pack.test.mjs
           bash studio/build_web.sh
           node --check studio/web/studio.js
+          node --check studio/web/studio_glb.js
+          node --check studio/web/glb_workshop.mjs
+          node --check studio/web/forge_pack.mjs
+          test -s studio/web/packs/forge-basics.mfpack
           node studio/tests/wasm-smoke.mjs
       - name: Configure Pages
         uses: actions/configure-pages@v5
