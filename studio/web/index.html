@@ -8,7 +8,7 @@
 </head>
 <body>
 <header><div class="brand"><span>◈</span><div><strong>MODEL FORGE</strong><small>AI STUDIO · SHARED NATIVE ENGINE</small></div></div>
-<nav><button id="workspace-shape" class="active-workspace">Shape lab</button><label class="btn" for="glb-open">OPEN CAR GLB</label><input id="glb-open" type="file" accept=".glb,model/gltf-binary" hidden><button id="new">New body</button><label class="btn shape-nav" for="open">Open .mforge</label><input id="open" type="file" accept=".mforge,text/plain" hidden><button id="save" class="shape-nav">Save .mforge</button><button id="export" class="shape-nav primary">Export GLB</button></nav></header>
+<nav><button id="workspace-shape" class="active-workspace">Shape lab</button><button id="glb-library-open">▦ CC0 PARTS</button><label class="btn" for="glb-open">OPEN CAR GLB</label><input id="glb-open" type="file" accept=".glb,model/gltf-binary" hidden><button id="new">New body</button><label class="btn shape-nav" for="open">Open .mforge</label><input id="open" type="file" accept=".mforge,text/plain" hidden><button id="save" class="shape-nav">Save .mforge</button><button id="export" class="shape-nav primary">Export GLB</button></nav></header>
 <main>
 <section id="body-panel" class="panel">
   <small class="kicker">OBJECT</small><h2>Shape body</h2><p>Real editable geometry in the Model Forge native C++ engine.</p>
@@ -145,6 +145,19 @@
   <div class="session-summary" id="glb-action-status">Import an editable GLB to begin.</div>
 </section>
 </main>
+<dialog id="glb-library-dialog" class="forge-library-dialog">
+  <div class="library-top"><h2>Forge Basics · 18 CC0 parts</h2><button id="glb-library-close" aria-label="Close library">✕</button></div>
+  <p>Original free-to-use Model Forge parts. The pack stays compressed until you choose an item.</p>
+  <label>Browse parts
+    <select id="glb-library-items" size="12" aria-label="Select model library part"></select>
+  </label>
+  <p id="glb-library-info">Loading the compressed parts catalog…</p>
+  <div class="library-actions">
+    <button id="glb-library-alone">Open as a standalone GLB</button>
+    <button id="glb-library-add" class="primary">Preview add to current car</button>
+  </div>
+  <p class="tip">New parts start near the model origin. Select the inserted part afterward to reposition or resize it.</p>
+</dialog>
 <footer><output id="status" role="status" aria-live="polite">Loading engine…</output><span>CO-OP ALPHA · ONLY SHARE LINKS WITH PEOPLE YOU TRUST</span></footer>
 <script type="module" src="./studio.js"></script>
 </body></html>
