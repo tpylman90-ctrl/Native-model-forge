@@ -3,9 +3,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import createForgeCore from "./forge_core.js";
 import {encodeSession, decodeSession} from "./share_session.mjs";
+import {initImportedWorkbench} from "./studio_glb.js";
 
 const el = (id) => document.getElementById(id);
 let core, model = null, activeFace = 4, state = null, modified = false, showWire = false;
+let imported = null;
 const faceNames = ["Front +Z","Back −Z","Right +X","Left −X","Top +Y","Bottom −Y"];
 const viewport = el("viewport"), status = el("status");
 const scene = new THREE.Scene();
@@ -79,6 +81,7 @@ function selectFace(face){
   });
 }
 function fit(){
+  if(imported?.active){imported.fit();return;}
   if(!model)return;
   const bounds=model.geometry.boundingBox;
   const center=bounds.getCenter(new THREE.Vector3());
@@ -118,7 +121,7 @@ function refresh(shouldFit=false,isEdit=true){
   if(model){
     scene.remove(model);model.geometry.dispose();model.material.forEach(m=>m.dispose());
   }
-  model=next;scene.add(next);
+  model=next;if(!imported?.active)scene.add(next);
   ["width","height","length"].forEach((key,i)=>el(key).value=Number(state.size[i].toFixed(4)));
   ["topWidth","topLength","shift"].forEach((key,i)=>el(key).value=Number(state.profile[i].toFixed(4)));
   el("name").value=state.name;
@@ -139,9 +142,11 @@ renderer.domElement.addEventListener("pointerdown",e=>{
   pointerDown={x:e.clientX,y:e.clientY};
 });
 renderer.domElement.addEventListener("pointerup",e=>{
-  if(!pointerDown||!model)return;
+  if(!pointerDown)return;
   const distance=Math.hypot(e.clientX-pointerDown.x,e.clientY-pointerDown.y);
   pointerDown=null;if(distance>7)return;
+  if(imported?.active){imported.handleViewportTap(e);return;}
+  if(!model)return;
   const b=renderer.domElement.getBoundingClientRect();
   mouse.set((e.clientX-b.left)/b.width*2-1,-(e.clientY-b.top)/b.height*2+1);
   raycaster.setFromCamera(mouse,camera);
@@ -149,6 +154,7 @@ renderer.domElement.addEventListener("pointerup",e=>{
   if(hits.length&&hits[0].face)selectFace(hits[0].face.materialIndex);
 });
 function viewAngle(angle){
+  if(imported?.active){imported.viewAngle(angle);return;}
   if(!model)return;
   const center=model.geometry.boundingBox.getCenter(new THREE.Vector3());
   const distance=Math.max(.5,model.geometry.boundingBox.getSize(new THREE.Vector3()).length()*1.8);
@@ -171,10 +177,13 @@ document.querySelectorAll("[data-angle]").forEach(button=>{
 el("face").addEventListener("change",()=>selectFace(Number(el("face").value)));
 el("fit").addEventListener("click",fit);
 el("wire").addEventListener("click",()=>{
-  showWire=!showWire;if(model)model.material.forEach(m=>{m.wireframe=showWire;m.needsUpdate=true;});
+  showWire=!showWire;
+  if(imported?.active)imported.wireframe(showWire);
+  else if(model)model.material.forEach(m=>{m.wireframe=showWire;m.needsUpdate=true;});
   el("wire").textContent=showWire?"Wireframe on":"Wireframe off";
 });
 el("new").addEventListener("click",()=>safe(()=>{
+  if(imported?.active)imported.leave();
   if(modified&&!confirm("Replace this model? Save the .mforge file first if needed."))return;
   must("mf_new_box",["number","number","number"],[4.5,1.8,8.4]);
   activeFace=4;refresh(true,false);modified=false;notify("New native starter body created");
@@ -224,6 +233,11 @@ function download(name,data,mime){
   document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),2000);
 }
+// Imported GLB workspace preserves source bytes without converting complex
+// imported topology into the limited six-face native MFORGE_DOC 5 schema.
+imported=initImportedWorkbench({
+  scene,camera,orbit,renderer,el,notify,download,getShape:()=>model
+});
 el("save").addEventListener("click",()=>safe(()=>{
   download(stem()+".mforge",call("mf_save_project","string"),"text/plain;charset=utf-8");
   modified=false;notify("Editable .mforge saved for Android Model Forge");
@@ -312,7 +326,7 @@ el("apply-command").addEventListener("click",()=>safe(()=>{
   applyCommand(cmd);notify("Approved JSON command applied to native model");
 }));
 window.addEventListener("beforeunload",e=>{
-  if(modified){e.preventDefault();e.returnValue="";}
+  if(modified||imported?.dirty){e.preventDefault();e.returnValue="";}
 });
 // Shared baseline can be updated by the collaborator through GitHub.
 // The browser fetches it on demand, without authentication or write tokens.
